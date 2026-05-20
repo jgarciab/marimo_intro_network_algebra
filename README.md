@@ -8,6 +8,12 @@ Built as a companion to the *Network Representation, Algebra, and
 Centrality* lecture of the Network Science Summer School (Utrecht
 University, 2026 edition).
 
+**Live (WASM build):**
+<https://javier.science/marimo_intro_network_algebra/>
+
+Every push to `main` rebuilds the WASM bundle via GitHub Actions
+(`.github/workflows/deploy.yml`) and republishes it to GitHub Pages.
+
 ## What's inside
 
 Eight short sections, all driven by the same active network:
