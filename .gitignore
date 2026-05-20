@@ -4,4 +4,3 @@ __marimo__/
 build/
 *.pyc
 .DS_Store
-uv.lock
