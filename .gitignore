@@ -1,0 +1,7 @@
+__pycache__/
+__marimo__/
+.venv/
+build/
+*.pyc
+.DS_Store
+uv.lock
