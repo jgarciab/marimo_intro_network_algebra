@@ -1,8 +1,8 @@
 # marimo_intro_network_algebra
 
-A standalone [marimo](https://marimo.io) app that gives visual intuition
-for how matrix multiplication on an adjacency matrix encodes paths,
-triangles, and the major centrality measures.
+A standalone [marimo](https://marimo.io) app that builds intuition for
+one idea: **matrix multiplication on an adjacency matrix is counting
+paths** — and path-counting powers half of network science.
 
 Built as a companion to the *Network Representation, Algebra, and
 Centrality* lecture of the Network Science Summer School (Utrecht
@@ -16,28 +16,32 @@ Every push to `main` rebuilds the WASM bundle via GitHub Actions
 
 ## What's inside
 
-Eight short sections, all driven by the same active network:
+Seven short sections, all driven by the same active network. The default
+is a five-person toy network, small enough that every number in every
+equation is visible and checkable by hand:
 
-1. **The adjacency matrix as a picture** — node-link view alongside a
-   heatmap of $A$, with the transpose toggle and the trace.
-2. **$Ax$ — ask each node a question about its neighbours** — pick the
-   vector $x$ (ones, indicator, Gaussian) and watch $A x$ light up.
-3. **The friendship paradox** — degree vs. average-neighbour-degree.
-4. **$A^k$ counts length-$k$ walks** — slider over $k$, click a cell to
-   walk through the dot product.
-5. **Triangles live on the diagonal of $A^3$** — bar chart of triangles
-   per node and the same on the graph.
-6. **Power iteration → eigenvector centrality** — repeat $x \leftarrow A x$
-   and watch the bars converge.
-7. **Random walks → PageRank** — drop a unit mass, iterate
-   $x \leftarrow P^\top x$, and compare with `g.pagerank()`.
-8. **Same network, different questions** — five centralities side by
-   side on the same graph.
+1. **The network and its matrix** — pick a node, see its row highlighted
+   in the numeric matrix and its edges highlighted in the drawing.
+2. **$Ax$ — ask every node about its neighbours** — the sum for one node
+   spelled out term by term, with the zero terms greyed out.
+3. **Average of friends, and the friendship paradox** — a table you can
+   check by hand on the toy network; histograms on bigger ones.
+4. **$A^k$ — see the walks, see the sum** — every walk of length $k$
+   from $i$ to $j$ drawn on the network, colour-matched to the nonzero
+   terms of the expanded dot product.
+5. **Reachable in at most $k$ steps** — nodes coloured by the step at
+   which $A + A^2 + \dots + A^k$ first reaches them.
+6. **Triangles live on the diagonal of $A^3$** — counts written on the
+   nodes, triangle edges highlighted.
+7. **Multiply again and again** — power iteration settles on a ranking
+   (a teaser for eigenvector centrality and PageRank).
 
-Default network: Florentine families (Padgett 1994, 16 nodes). Also
-bundled: Zachary's karate club, the Krackhardt Kite, and a small
-directed toy. You can also upload your own — CSV edge list with
-`source`/`target` columns, or a GraphML/GML file (cap: 60 nodes).
+Default network: "Five friends" (5 nodes). Also bundled: a small
+directed toy, the Krackhardt Kite, Florentine families (Padgett 1994),
+and Zachary's karate club. You can also upload your own — CSV edge list
+with `source`/`target` columns, or a GraphML/GML file (cap: 60 nodes).
+Full numeric matrices and spelled-out sums appear for networks up to
+16 nodes; bigger networks fall back to heatmaps.
 
 ## Running locally
 

@@ -46,12 +46,16 @@ def imports():
     NEUTRAL_NODE = "#0b789d"
     EDGE_COLOR = (0.85, 0.85, 0.85, 0.35)
 
-    # Tighter cap than the day1 intuition app — matshow on A^k doesn't
-    # scale much past ~60 nodes before the heatmap becomes unreadable.
+    # Tighter cap than the day1 intuition app — matrix displays do not
+    # scale much past ~60 nodes.
     MAX_NODES = 60
+    # Up to this size we print the actual numbers inside the matrix and
+    # spell out the sums term by term. Florentine (16) is the largest
+    # network that still gets the full numeric treatment.
+    NUMBER_THRESHOLD = 16
     return (
-        ACCENT, EDGE_COLOR, MAX_NODES, NEUTRAL_NODE, PALETTE,
-        ig, io, mo, np, pd, plt, rnd_mod,
+        ACCENT, EDGE_COLOR, MAX_NODES, NEUTRAL_NODE, NUMBER_THRESHOLD,
+        PALETTE, ig, io, mo, np, pd, plt, rnd_mod,
     )
 
 
@@ -62,8 +66,36 @@ def imports():
 
 @app.cell
 def network_catalogue(ig):
-    # Florentine families (Padgett 1994). The default — 16 nodes fits any
-    # matrix display, and Medici-vs-Strozzi is a story worth telling.
+    # Five friends — the default. Small enough that every entry of A,
+    # every term of every sum, and every walk can be read directly.
+    # A triangle (Alice, Bob, Carol) plus a tail (Carol-David-Emma).
+    def _five_friends():
+        g_ = ig.Graph(
+            n=5,
+            edges=[(0, 1), (0, 2), (1, 2), (2, 3), (3, 4)],
+            directed=False,
+        )
+        g_.vs["name"] = ["Alice", "Bob", "Carol", "David", "Emma"]
+        g_.vs["children"] = [2, 0, 3, 1, 4]
+        return g_
+
+    # A small directed toy so the asymmetric-matrix story is visible.
+    def _toy_directed():
+        g_ = ig.Graph(
+            n=6,
+            edges=[(0, 1), (0, 2), (1, 3), (2, 3), (3, 4), (4, 1),
+                   (4, 5), (5, 0)],
+            directed=True,
+        )
+        g_.vs["name"] = ["A", "B", "C", "D", "E", "F"]
+        return g_
+
+    def _kite():
+        g_ = ig.Graph.Famous("Krackhardt_Kite")
+        g_.vs["name"] = [str(i) for i in range(g_.vcount())]
+        return g_
+
+    # Florentine families (Padgett 1994).
     _flor_names = (
         "ACCIAIUOL", "ALBIZZI", "BARBADORI", "BISCHERI", "CASTELLAN",
         "GINORI", "GUADAGNI", "LAMBERTES", "MEDICI", "PAZZI", "PERUZZI",
@@ -76,56 +108,23 @@ def network_catalogue(ig):
         (8, 15), (9, 13), (10, 14), (12, 14), (12, 15),
     )
 
-    # Zachary karate factions (Zachary 1977).
-    _zachary_factions = (
-        0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0,
-        0, 1, 0, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-    )
-
-    # A small directed toy so that the transpose / asymmetry view in
-    # Section 1 actually shows something. Six nodes, citation-like.
-    _toy_names = ("A", "B", "C", "D", "E", "F")
-    _toy_edges = (
-        (0, 1), (0, 2), (1, 3), (2, 3), (3, 4),
-        (4, 1), (4, 5), (5, 0),
-    )
-
-    def _build(names, edges, attr=None, attr_name=None,
-               value_names=None, directed=False):
-        g_ = ig.Graph(n=len(names), edges=list(edges), directed=directed)
-        g_.vs["name"] = list(names)
-        if attr is not None:
-            g_.vs[attr_name] = list(attr)
-            g_["_attr_name"] = attr_name
-            g_["_attr_value_names"] = (
-                list(value_names) if value_names else None
-            )
-        return g_
-
     def _florentine():
-        return _build(_flor_names, _flor_edges)
+        g_ = ig.Graph(n=len(_flor_names), edges=list(_flor_edges),
+                      directed=False)
+        g_.vs["name"] = list(_flor_names)
+        return g_
 
     def _karate():
         g_ = ig.Graph.Famous("Zachary")
         g_.vs["name"] = [str(i) for i in range(g_.vcount())]
-        g_.vs["Faction"] = list(_zachary_factions)
-        g_["_attr_name"] = "Faction"
-        g_["_attr_value_names"] = ["Mr Hi", "Officer"]
         return g_
-
-    def _kite():
-        g_ = ig.Graph.Famous("Krackhardt_Kite")
-        g_.vs["name"] = [str(i) for i in range(g_.vcount())]
-        return g_
-
-    def _toy_directed():
-        return _build(_toy_names, _toy_edges, directed=True)
 
     BUNDLED = {
-        "Florentine families (16 nodes)": _florentine,
-        "Karate club (34 nodes, 2 factions)": _karate,
-        "Krackhardt Kite (10 nodes)": _kite,
+        "Five friends (5 nodes)": _five_friends,
         "Directed toy (6 nodes)": _toy_directed,
+        "Krackhardt Kite (10 nodes)": _kite,
+        "Florentine families (16 nodes)": _florentine,
+        "Karate club (34 nodes)": _karate,
     }
     return (BUNDLED,)
 
@@ -139,7 +138,7 @@ def network_catalogue(ig):
 def chooser_widgets(BUNDLED, mo):
     bundled_choice = mo.ui.dropdown(
         options=list(BUNDLED.keys()),
-        value="Florentine families (16 nodes)",
+        value="Five friends (5 nodes)",
         label="Bundled network",
     )
     file_upload = mo.ui.file(
@@ -244,7 +243,7 @@ def build_active_graph(BUNDLED, MAX_NODES, bundled_choice, file_upload, ig, io, 
 
 
 @app.cell
-def sidebar_cell(bundled_choice, file_upload, g, is_directed, mo, source_label, upload_warning):
+def sidebar_cell(NUMBER_THRESHOLD, bundled_choice, file_upload, g, is_directed, mo, source_label, upload_warning):
     _items = [
         mo.md("### Active network"),
         bundled_choice,
@@ -260,8 +259,11 @@ def sidebar_cell(bundled_choice, file_upload, g, is_directed, mo, source_label, 
         _items.append(mo.md(f"> {upload_warning}"))
     _items.append(mo.md("---"))
     _items.append(mo.md(
-        "_The active network drives every section below — pick once "
-        "here, then scroll._"
+        "_The active network drives every section below. Equations are "
+        f"spelled out with real numbers for networks up to "
+        f"{NUMBER_THRESHOLD} nodes — start with the tiny default, then "
+        "switch to a bigger one to see that nothing changes except "
+        "the size._"
     ))
     mo.sidebar(_items)
     return
@@ -274,21 +276,124 @@ def sidebar_cell(bundled_choice, file_upload, g, is_directed, mo, source_label, 
 
 @app.cell
 def shared_A_and_layout(g, np):
-    # Adjacency matrix as a dense float array. With MAX_NODES = 60 this
-    # is at most 60*60 = 3600 floats — cheap to recompute every time the
-    # network changes, no caching needed.
+    # Dense adjacency matrix. With MAX_NODES = 60 this is at most 3600
+    # floats — cheap to recompute whenever the network changes.
     A = np.array(g.get_adjacency().data, dtype=float)
 
-    # One layout per active network. Kamada-Kawai works well for the
-    # small bundled graphs; for anything bigger or non-symmetric we fall
-    # back to Fruchterman-Reingold with a fixed seed so that node
-    # positions are stable across sections.
+    # One layout per active network, reused by every section so nodes
+    # never jump when a slider moves.
     try:
         _layout = g.layout_kamada_kawai()
     except Exception:
         _layout = g.layout_fruchterman_reingold(niter=500, seed=1)
     layout_coords = [tuple(row) for row in _layout.coords]
     return A, layout_coords
+
+
+# -----------------------------------------------------------------------------
+# Shared plotting helpers
+# -----------------------------------------------------------------------------
+
+
+@app.cell
+def plot_helpers(EDGE_COLOR, NUMBER_THRESHOLD, ig, np, plt):
+    def clean_axis(ax):
+        ax.set_facecolor("white")
+        ax.grid(False)
+        ax.set_xticks([])
+        ax.set_yticks([])
+        for side in ("top", "right", "bottom", "left"):
+            ax.spines[side].set_visible(False)
+
+    def draw_graph(ax, g_, coords, vertex_color="#0b789d", vertex_size=None,
+                   labels=None, edge_color=None, edge_width=1.0,
+                   label_size=9):
+        clean_axis(ax)
+        n_ = g_.vcount()
+        if vertex_size is None:
+            vertex_size = 26 if n_ <= 16 else (16 if n_ <= 34 else 10)
+        if labels is None:
+            labels = g_.vs["name"] if n_ <= 30 else [""] * n_
+        ig.plot(
+            g_,
+            target=ax,
+            layout=coords,
+            vertex_color=vertex_color,
+            vertex_size=vertex_size,
+            vertex_frame_width=0,
+            vertex_label=labels,
+            vertex_label_size=label_size,
+            vertex_label_color="#222222",
+            edge_color=edge_color if edge_color is not None else EDGE_COLOR,
+            edge_width=edge_width,
+            edge_arrow_size=0.8 if g_.is_directed() else 0.0,
+        )
+
+    def matrix_with_numbers(ax, M, names_, highlight_row=None,
+                            highlight_cell=None, cmap="Blues", title=None):
+        """Heatmap of M; prints the integers in the cells for small n."""
+        n_ = M.shape[0]
+        vmax = max(1.0, float(M.max()))
+        cm = plt.get_cmap(cmap)
+        ax.imshow(M, cmap=cmap, vmin=0, vmax=vmax, aspect="equal")
+        ax.grid(False)
+        if n_ <= 30:
+            ax.set_xticks(range(n_))
+            ax.set_yticks(range(n_))
+            ax.set_xticklabels(names_, rotation=90, fontsize=8)
+            ax.set_yticklabels(names_, fontsize=8)
+        else:
+            ax.set_xticks([])
+            ax.set_yticks([])
+        if n_ <= NUMBER_THRESHOLD:
+            fs = 12 if n_ <= 8 else 8
+            for ri in range(n_):
+                for ci in range(n_):
+                    v = M[ri, ci]
+                    red, grn, blu, _ = cm(v / vmax)
+                    lum = 0.299 * red + 0.587 * grn + 0.114 * blu
+                    if v == 0:
+                        col = "#bbbbbb" if lum > 0.5 else "#888888"
+                    else:
+                        col = "white" if lum < 0.5 else "#333333"
+                    ax.text(ci, ri, f"{int(v)}", ha="center", va="center",
+                            fontsize=fs, color=col)
+        if highlight_row is not None:
+            ax.add_patch(plt.Rectangle(
+                (-0.5, highlight_row - 0.5), n_, 1,
+                fill=False, edgecolor="#c0223b", linewidth=2.0, zorder=5,
+            ))
+        if highlight_cell is not None:
+            hri, hci = highlight_cell
+            ax.add_patch(plt.Rectangle(
+                (hci - 0.5, hri - 0.5), 1, 1,
+                fill=False, edgecolor="#1ed8a3", linewidth=2.5, zorder=6,
+            ))
+        if title:
+            ax.set_title(title)
+
+    def enumerate_walks(A_, start, end, k, cap=200):
+        """All walks of length k from start to end (node index lists)."""
+        n_ = A_.shape[0]
+        out = []
+
+        def dfs(path):
+            if len(out) >= cap:
+                return
+            if len(path) == k + 1:
+                if path[-1] == end:
+                    out.append(list(path))
+                return
+            for nxt in range(n_):
+                if A_[path[-1], nxt] > 0:
+                    path.append(nxt)
+                    dfs(path)
+                    path.pop()
+
+        dfs([start])
+        return out
+
+    return clean_axis, draw_graph, enumerate_walks, matrix_with_numbers
 
 
 # -----------------------------------------------------------------------------
@@ -299,28 +404,30 @@ def shared_A_and_layout(g, np):
 @app.cell
 def title(mo):
     mo.md(r"""
-    # Matrix multiplication, paths, triangles & centrality
+    # Matrix multiplication is counting paths
 
-    Matrix multiplication on an adjacency matrix isn't an abstract
-    algebraic trick — it's *the* way networks answer questions about
-    themselves.
+    A network can be written as a matrix $A$: one row and one column per
+    node, with $A_{ij} = 1$ when $i$ and $j$ are connected. That is just
+    storage. The magic starts when you **multiply**:
 
-    - $A x$ asks every node a question about its neighbours.
-    - $A^2$ counts length-2 paths, and the diagonal counts common
-      neighbours.
-    - $A^3$ has triangles on its diagonal.
-    - Iterating $x \leftarrow A x$ converges to eigenvector centrality.
-    - Iterating $x \leftarrow P^\top x$ on the row-normalised $P$
-      converges to PageRank.
+    - $A x$ asks every node a question about its **neighbours** (1 step).
+    - $A^2$ counts **walks of length 2** — friends of friends.
+    - $A^3$ has **triangles** sitting on its diagonal.
+    - Multiplying again and again makes a notion of **importance** emerge.
 
-    **One matrix, many questions.** Pick a network in the sidebar (the
-    default is the Florentine families, 16 nodes) and scroll through.
+    The same trick — follow the paths, add them up — is behind search
+    ranking, epidemic models, recommendation systems, and community
+    detection. Learn to read one multiplication and you can read them all.
+
+    The default network is five people, so every number in every equation
+    is visible. Nothing is hidden inside the math: you can check each sum
+    with your finger on the picture.
     """)
     return
 
 
 # -----------------------------------------------------------------------------
-# Section 1 — The adjacency matrix as a picture
+# Section 1 — The network and its matrix
 # -----------------------------------------------------------------------------
 
 
@@ -328,99 +435,81 @@ def title(mo):
 def section1_header(mo):
     mo.md(r"""
     ---
-    ## 1. The adjacency matrix as a picture
+    ## 1. The network and its matrix
 
-    The same network, two pictures: a node-link drawing on the left, a
-    heatmap of the adjacency matrix $A$ on the right.
+    The picture and the matrix carry exactly the same information.
+    **Row $i$ answers one question: who is $i$ connected to?** A 1 in
+    column $j$ means "yes, $j$". The diagonal is all zeros (nobody is
+    their own neighbour), and for an undirected network the matrix is
+    symmetric: if Alice knows Bob, Bob knows Alice.
 
-    - **A blue cell** at row $i$, column $j$ means there is an edge from
-      $i$ to $j$.
-    - **The diagonal** (top-left to bottom-right) is zero for a simple
-      graph — no self-loops. The *trace* of $A$ (the sum of the
-      diagonal) is therefore zero too.
-    - **Symmetry across the diagonal** means undirected. If you flip
-      the matrix across the diagonal ($A^\top$, the *transpose*) and
-      get back the same picture, the graph is undirected.
+    Pick a node and find its row.
     """)
     return
 
 
 @app.cell
-def s1_controls(is_directed, mo):
-    show_transpose = mo.ui.checkbox(
-        value=False,
-        label="Show the transpose $A^\\top$ instead",
+def s1_widgets(g, mo):
+    row_node = mo.ui.dropdown(
+        options=list(g.vs["name"]),
+        value=g.vs["name"][0],
+        label="Pick a node",
     )
-    _note = mo.md(
-        "_The active graph is directed — toggle the transpose to see the "
-        "asymmetry: $A \\neq A^\\top$._"
-        if is_directed else
-        "_The active graph is undirected, so $A = A^\\top$ — toggling the "
-        "transpose makes no visible difference._"
-    )
-    mo.vstack([show_transpose, _note], gap=0.4)
-    return (show_transpose,)
+    row_node
+    return (row_node,)
 
 
 @app.cell
-def s1_plot(A, EDGE_COLOR, NEUTRAL_NODE, g, ig, layout_coords, mo, np, plt, show_transpose):
-    _M = A.T if show_transpose.value else A
-    _label = "A^T" if show_transpose.value else "A"
+def s1_plot(A, ACCENT, EDGE_COLOR, draw_graph, g, layout_coords, matrix_with_numbers, mo, np, plt, row_node):
     _n = g.vcount()
-    _names = g.vs["name"]
+    _names = list(g.vs["name"])
+    _f = _names.index(row_node.value)
 
-    _fig, _axes = plt.subplots(1, 2, figsize=(11, 5.0))
+    _fig, (_axL, _axR) = plt.subplots(1, 2, figsize=(11, 5.2))
 
-    # Left: node-link
-    _axL = _axes[0]
-    _axL.set_facecolor("white")
-    _axL.grid(False)
-    _axL.set_xticks([])
-    _axL.set_yticks([])
-    for _side in ("top", "right", "bottom", "left"):
-        _axL.spines[_side].set_visible(False)
-    ig.plot(
-        g,
-        target=_axL,
-        layout=layout_coords,
-        vertex_color=NEUTRAL_NODE,
-        vertex_size=22 if _n <= 30 else 14,
-        vertex_frame_width=0,
-        vertex_label=_names if _n <= 30 else [""] * _n,
-        vertex_label_size=9,
-        vertex_label_color="#222222",
-        edge_color=EDGE_COLOR,
-        edge_width=1.0,
-        edge_arrow_size=0.8 if g.is_directed() else 0.0,
-    )
-    _axL.set_title(f"Node-link view  ·  n = {_n}, m = {g.ecount()}")
+    # Left: graph with the chosen node and its edges highlighted.
+    _ecols = []
+    _ewids = []
+    for _e in g.es:
+        if _f in (_e.source, _e.target):
+            _ecols.append(ACCENT)
+            _ewids.append(2.5)
+        else:
+            _ecols.append(EDGE_COLOR)
+            _ewids.append(1.0)
+    _vcols = ["#c8dde6"] * _n
+    _vcols[_f] = ACCENT
+    draw_graph(_axL, g, layout_coords, vertex_color=_vcols,
+               edge_color=_ecols, edge_width=_ewids)
+    _axL.set_title(f"{row_node.value} and its edges")
 
-    # Right: heatmap of A (or A^T)
-    _axR = _axes[1]
-    _axR.imshow(_M, cmap="Blues", vmin=0, vmax=1, aspect="equal")
-    # diagonal highlight
-    _axR.plot(
-        [-0.5, _n - 0.5], [-0.5, _n - 0.5],
-        color="#c0223b", linestyle="--", linewidth=1.2, alpha=0.8,
-    )
-    if _n <= 30:
-        _axR.set_xticks(range(_n))
-        _axR.set_yticks(range(_n))
-        _axR.set_xticklabels(_names, rotation=90, fontsize=8)
-        _axR.set_yticklabels(_names, fontsize=8)
-    else:
-        _axR.set_xticks([])
-        _axR.set_yticks([])
-    _trace = float(np.trace(A))
-    _axR.set_title(f"{_label}   ·   trace = {int(_trace)}")
-    _axR.grid(False)
+    # Right: the matrix with that row boxed.
+    matrix_with_numbers(_axR, A, _names, highlight_row=_f,
+                        title="Adjacency matrix A")
     plt.tight_layout()
-    mo.vstack([_fig])
+
+    _row = A[_f]
+    _nbrs = [_names[_j] for _j in range(_n) if _row[_j] > 0]
+    _sym = bool(np.array_equal(A, A.T))
+    _read = (
+        f"**Row {row_node.value}** = "
+        f"[{', '.join(str(int(_v)) for _v in _row)}]"
+        if _n <= 16 else f"**Row {row_node.value}**"
+    )
+    _msg = mo.md(
+        f"{_read} — connected to "
+        f"{', '.join('**' + _b + '**' for _b in _nbrs) if _nbrs else 'nobody'}."
+        f" The row sum is {int(_row.sum())}: that is the **degree**"
+        f"{' (out-degree, since this network is directed)' if g.is_directed() else ''}."
+        f" This matrix is {'symmetric — undirected' if _sym else 'NOT symmetric — directed: row = who I point to, column = who points to me'}."
+        f" Trace (sum of the diagonal) = {int(np.trace(A))}."
+    )
+    mo.vstack([_fig, _msg])
     return
 
 
 # -----------------------------------------------------------------------------
-# Section 2 — A @ x = ask each node a question about its neighbours
+# Section 2 — A @ x: ask every node a question about its neighbours
 # -----------------------------------------------------------------------------
 
 
@@ -428,124 +517,170 @@ def s1_plot(A, EDGE_COLOR, NEUTRAL_NODE, g, ig, layout_coords, mo, np, plt, show
 def section2_header(mo):
     mo.md(r"""
     ---
-    ## 2. $Ax$ — ask each node a question about its neighbours
+    ## 2. $Ax$ — ask every node about its neighbours
 
-    Multiplying $A$ by a vector $x$ produces a new vector $y = Ax$ where
+    Multiply $A$ by a vector $x$ (one value per node) and you get a new
+    vector $y = Ax$ with
 
     $$
-    y_i = \sum_{j} A_{ij}\, x_j = \sum_{j \in N(i)} x_j
+    y_i = \sum_{j} A_{ij}\, x_j .
     $$
 
-    In plain words: **$y_i$ is the sum of $x$ over node $i$'s
-    neighbours**. So choose $x$ and you choose the question:
+    The 1s in row $i$ pick out $i$'s neighbours; the 0s erase everyone
+    else. So **$y_i$ is just the sum of $x$ over $i$'s neighbours** — no
+    loops, no code, one multiplication.
 
-    - $x = (1, 1, \dots, 1)$ &nbsp; → &nbsp; $y$ = each node's **degree**.
-    - $x$ = an indicator for one node &nbsp; → &nbsp; $y$ marks that
-      node's neighbours.
-    - $x$ = a random Gaussian &nbsp; → &nbsp; $y$ is the average
-      neighbour signal at each node (an unweighted *graph smoothing*).
+    Try it with the number of children each person has: $y_{\text{Alice}}$
+    becomes "how many children do Alice's friends have, in total?". With
+    $x$ = all ones, the sum counts the neighbours themselves: the degree.
     """)
     return
 
 
 @app.cell
 def s2_widgets(g, mo):
-    x_choice = mo.ui.dropdown(
-        options=[
-            "All ones (gives degree)",
-            "Indicator for one node",
-            "Random Gaussian",
-        ],
-        value="All ones (gives degree)",
-        label="Vector x",
+    _opts = []
+    if "children" in g.vs.attributes():
+        _opts.append("Number of children (attribute)")
+    _opts.append("All ones (counts neighbours = degree)")
+    _opts.append("Example attribute (random 0-5)")
+    x_kind = mo.ui.dropdown(
+        options=_opts, value=_opts[0], label="Vector x",
     )
-    seed_choice = mo.ui.slider(
-        start=1, stop=20, step=1, value=1,
-        label="Random seed (Gaussian only)",
-        show_value=True,
-    )
-    node_choice = mo.ui.dropdown(
+    focus_node = mo.ui.dropdown(
         options=list(g.vs["name"]),
         value=g.vs["name"][0],
-        label="Indicator node",
+        label="Spell out the sum for",
     )
-    mo.hstack([x_choice, node_choice, seed_choice], gap=1.0, widths="equal")
-    return node_choice, seed_choice, x_choice
+    mo.hstack([x_kind, focus_node], gap=1.0, widths="equal")
+    return focus_node, x_kind
 
 
 @app.cell
-def s2_plot(A, ACCENT, g, mo, node_choice, np, plt, seed_choice, x_choice):
+def s2_plot(A, ACCENT, EDGE_COLOR, NUMBER_THRESHOLD, clean_axis, draw_graph, focus_node, g, layout_coords, mo, np, plt, x_kind):
     _n = g.vcount()
-    _names = g.vs["name"]
+    _names = list(g.vs["name"])
+    _f = _names.index(focus_node.value)
 
-    if x_choice.value == "All ones (gives degree)":
+    if x_kind.value == "Number of children (attribute)":
+        _x = np.array(g.vs["children"], dtype=float)
+        _xlabel = "x = number of children"
+    elif x_kind.value == "All ones (counts neighbours = degree)":
         _x = np.ones(_n)
-        _xlabel = "x = 1"
-    elif x_choice.value == "Indicator for one node":
-        _x = np.zeros(_n)
-        _idx = _names.index(node_choice.value)
-        _x[_idx] = 1.0
-        _xlabel = f"x = e_{node_choice.value}"
+        _xlabel = "x = all ones"
     else:
-        _rng = np.random.default_rng(int(seed_choice.value))
-        _x = _rng.standard_normal(_n)
-        _xlabel = f"x ~ N(0, 1), seed = {int(seed_choice.value)}"
+        _rng = np.random.default_rng(7)
+        _x = _rng.integers(0, 6, _n).astype(float)
+        _xlabel = "x = example attribute (random 0-5)"
 
     _y = A @ _x
 
-    _fig, _axes = plt.subplots(1, 2, figsize=(11, 3.6), sharey=False)
-    _ax1, _ax2 = _axes
-    _show_ticks = _n <= 30
+    _fig = plt.figure(figsize=(11.5, 8.0))
+    _gs = _fig.add_gridspec(2, 2, height_ratios=[1.5, 1.0])
+    _axG = _fig.add_subplot(_gs[0, 0])
+    _axE = _fig.add_subplot(_gs[0, 1])
+    _axX = _fig.add_subplot(_gs[1, 0])
+    _axY = _fig.add_subplot(_gs[1, 1])
 
-    _ax1.bar(range(_n), _x, color="#888888", edgecolor="white")
-    _ax1.axhline(0, color="#444444", linewidth=0.6)
-    _ax1.set_title(f"Input vector  ·  {_xlabel}")
-    if _show_ticks:
-        _ax1.set_xticks(range(_n))
-        _ax1.set_xticklabels(_names, rotation=90, fontsize=8)
+    # Top left: graph; every node carries its x value, focus highlighted.
+    _ecols = []
+    _ewids = []
+    for _e in g.es:
+        if _f in (_e.source, _e.target):
+            _ecols.append(ACCENT)
+            _ewids.append(2.5)
+        else:
+            _ecols.append(EDGE_COLOR)
+            _ewids.append(1.0)
+    _vcols = ["#c8dde6"] * _n
+    _vcols[_f] = ACCENT
+    if _n <= NUMBER_THRESHOLD:
+        _labels = [f"{_names[_i]}\nx={_x[_i]:g}" for _i in range(_n)]
     else:
-        _ax1.set_xticks([])
-    _ax1.set_xlabel("node")
+        _labels = None
+    draw_graph(_axG, g, layout_coords, vertex_color=_vcols,
+               edge_color=_ecols, edge_width=_ewids, labels=_labels,
+               label_size=8)
+    _axG.set_title(f"Each node carries its x value  ({_xlabel})")
 
-    _ax2.bar(range(_n), _y, color=ACCENT, edgecolor="white")
-    _ax2.axhline(0, color="#444444", linewidth=0.6)
-    _ax2.set_title("Output  y = A x  (sum of neighbours' x)")
-    if _show_ticks:
-        _ax2.set_xticks(range(_n))
-        _ax2.set_xticklabels(_names, rotation=90, fontsize=8)
+    # Top right: the sum for the focus node, spelled out term by term.
+    clean_axis(_axE)
+    _axE.set_xlim(0, 1)
+    _axE.set_ylim(0, 1)
+    if _n <= NUMBER_THRESHOLD:
+        _show_all = _n <= 8
+        _w = max(len(_nm) for _nm in _names)
+        _lines = [(f"y({focus_node.value}) = sum of A({focus_node.value}, j) * x(j)",
+                   "#333333", True)]
+        _skipped = 0
+        for _j in range(_n):
+            _a = A[_f, _j]
+            _prod = _a * _x[_j]
+            if _a == 0 and not _show_all:
+                _skipped += 1
+                continue
+            _col = "#bbbbbb" if _a == 0 else "#333333"
+            _lines.append((
+                f"  {_names[_j]:<{_w}}   {int(_a)} * {_x[_j]:g} = {_prod:g}",
+                _col, False,
+            ))
+        if _skipped:
+            _lines.append((f"  (+ {_skipped} terms that are 0 * x = 0)",
+                           "#bbbbbb", False))
+        _lines.append((f"  total: y({focus_node.value}) = {_y[_f]:g}",
+                       "#c0223b", True))
+        _dy = 1.0 / (len(_lines) + 1)
+        for _t, (_txt, _col, _bold) in enumerate(_lines):
+            _axE.text(
+                0.02, 1.0 - (_t + 1) * _dy, _txt,
+                family="monospace", fontsize=10.5, color=_col,
+                fontweight="bold" if _bold else "normal",
+                transform=_axE.transAxes,
+            )
+        _axE.set_title("The sum, spelled out")
     else:
-        _ax2.set_xticks([])
-    _ax2.set_xlabel("node")
+        _axE.text(0.5, 0.5,
+                  "Switch to a network with at most\n"
+                  f"{NUMBER_THRESHOLD} nodes to see the sum spelled out\n"
+                  "(the math is identical).",
+                  ha="center", va="center", fontsize=11)
 
-    for _ax in _axes:
+    # Bottom: bar charts of x and y = A x.
+    _show_ticks = _n <= 16
+    _axX.bar(range(_n), _x, color="#888888", edgecolor="white")
+    _axX.set_title("Input  x")
+    _axY.bar(range(_n), _y, color=ACCENT, edgecolor="white")
+    _axY.set_title("Output  y = A x  (sum over neighbours)")
+    for _ax in (_axX, _axY):
+        if _show_ticks:
+            _ax.set_xticks(range(_n))
+            _ax.set_xticklabels(_names, rotation=90, fontsize=8)
+        else:
+            _ax.set_xticks([])
         _ax.spines["top"].set_visible(False)
         _ax.spines["right"].set_visible(False)
     plt.tight_layout()
 
-    if x_choice.value == "All ones (gives degree)":
+    if x_kind.value == "All ones (counts neighbours = degree)":
         _note = (
-            "The output is exactly the degree sequence. "
-            "$A \\mathbf{1}$ = row-sums of $A$ = degree."
-        )
-    elif x_choice.value == "Indicator for one node":
-        _nb = [_names[j] for j in range(_n) if A[_idx, j] > 0]
-        _note = (
-            f"Only **{node_choice.value}**'s neighbours light up in $y$: "
-            f"{', '.join(_nb) if _nb else '(none — isolated node)'}."
+            "With $x$ = all ones every neighbour contributes exactly 1, so "
+            "$y$ = number of neighbours = **degree**. One multiplication "
+            "computed the degree of every node at once."
         )
     else:
+        _nbrs = [_names[_j] for _j in range(_n) if A[_f, _j] > 0]
         _note = (
-            "The output is a smoothed version of the input — each node's "
-            "value is replaced by the sum of its neighbours' values. "
-            "High-degree nodes amplify; isolated nodes go to zero."
+            f"Check it on the picture: {focus_node.value}'s neighbours are "
+            f"{', '.join(_nbrs) if _nbrs else 'nobody'}; add their x values "
+            f"and you get {_y[_f]:g}. The matrix did this for every node "
+            "simultaneously — that is all matrix multiplication is."
         )
-
     mo.vstack([_fig, mo.md(_note)])
     return
 
 
 # -----------------------------------------------------------------------------
-# Section 3 — Average of neighbours and the friendship paradox
+# Section 3 — Average of friends and the friendship paradox
 # -----------------------------------------------------------------------------
 
 
@@ -553,80 +688,98 @@ def s2_plot(A, ACCENT, g, mo, node_choice, np, plt, seed_choice, x_choice):
 def section3_header(mo):
     mo.md(r"""
     ---
-    ## 3. Average of neighbours, and the friendship paradox
+    ## 3. Average of friends, and the friendship paradox
 
-    Divide $Ax$ by the row sums (degree) and you get the **average** of
-    $x$ over each node's neighbours:
+    Divide the sum by the number of neighbours (the degree) and you get
+    an **average over friends**:
 
     $$
-    \bar y_i = \frac{1}{k_i} \sum_{j \in N(i)} x_j.
+    \bar y_i = \frac{(Ax)_i}{k_i}.
     $$
 
-    A famous special case: take $x$ = degree itself. Then $\bar y_i$ is
-    the **average degree of node $i$'s neighbours**. Comparing the
-    distributions of $k_i$ and $\bar y_i$ gives the friendship paradox:
-    *on average, your friends have more friends than you do*. The shift
-    is purely structural — it comes from the fact that high-degree
-    nodes appear in many neighbour lists.
+    Now feed the machine its own degrees: take $x = k$. Then $\bar y_i$
+    is "the average degree of $i$'s friends". Comparing it with $k_i$
+    gives a famous surprise — **on average, your friends have more
+    friends than you**. Popular people show up in many friend lists, so
+    they drag every list's average up.
     """)
     return
 
 
 @app.cell
 def s3_plot(A, ACCENT, g, mo, np, plt):
-    _deg = np.array(g.degree(), dtype=float)
-    _safe_deg = np.where(_deg > 0, _deg, 1.0)
-    _avg_nbr_deg = (A @ _deg) / _safe_deg
-    _avg_nbr_deg[_deg == 0] = np.nan
+    _n = g.vcount()
+    _names = list(g.vs["name"])
+    _deg = A.sum(axis=1)
+    _safe = np.where(_deg > 0, _deg, 1.0)
+    _avg_nbr = (A @ _deg) / _safe
+    _avg_nbr[_deg == 0] = np.nan
 
-    _valid = ~np.isnan(_avg_nbr_deg)
+    _valid = ~np.isnan(_avg_nbr)
     _mean_self = float(_deg[_valid].mean()) if _valid.any() else 0.0
-    _mean_nbr = float(np.nanmean(_avg_nbr_deg)) if _valid.any() else 0.0
+    _mean_nbr = float(np.nanmean(_avg_nbr)) if _valid.any() else 0.0
 
-    _fig, _axes = plt.subplots(1, 2, figsize=(11, 3.6))
-    _ax1, _ax2 = _axes
-
-    _kmax = int(max(_deg.max(), np.nanmax(_avg_nbr_deg))) if _valid.any() else int(_deg.max())
-    _bins = np.arange(0, _kmax + 2) - 0.5
-
-    _ax1.hist(_deg, bins=_bins, color="#888888", edgecolor="white")
-    _ax1.axvline(_mean_self, color="#c0223b", linestyle="--", linewidth=1.2,
-                 label=f"mean = {_mean_self:.2f}")
-    _ax1.set_title("Your degree  k_i")
-    _ax1.set_xlabel("k")
-    _ax1.legend(frameon=False, fontsize=9)
-
-    _ax2.hist(_avg_nbr_deg[_valid], bins=_bins, color=ACCENT, edgecolor="white")
-    _ax2.axvline(_mean_nbr, color="#c0223b", linestyle="--", linewidth=1.2,
-                 label=f"mean = {_mean_nbr:.2f}")
-    _ax2.set_title("Your friends' average degree  (A k) / k")
-    _ax2.set_xlabel("avg. neighbour k")
-    _ax2.legend(frameon=False, fontsize=9)
-
-    for _ax in _axes:
-        _ax.spines["top"].set_visible(False)
-        _ax.spines["right"].set_visible(False)
-    plt.tight_layout()
+    if _n <= 12:
+        # Numbers-first: a table you can check by hand.
+        _rows = ["| Node | Own degree | Friends (their degrees) | Friends' average |",
+                 "|---|---|---|---|"]
+        for _i in range(_n):
+            _nbrs = [_j for _j in range(_n) if A[_i, _j] > 0]
+            _flist = ", ".join(
+                f"{_names[_j]} ({int(_deg[_j])})" for _j in _nbrs
+            ) if _nbrs else "—"
+            _avg = f"{_avg_nbr[_i]:.2f}" if _nbrs else "—"
+            _winner = " **<**" if _nbrs and _avg_nbr[_i] > _deg[_i] else ""
+            _rows.append(
+                f"| {_names[_i]} | {int(_deg[_i])}{_winner} | {_flist} | {_avg} |"
+            )
+        _table = mo.md("\n".join(_rows))
+        _body = _table
+    else:
+        # Bigger networks: the two distributions.
+        _kmax = int(max(_deg.max(), np.nanmax(_avg_nbr)))
+        _bins = np.arange(0, _kmax + 2) - 0.5
+        _fig, (_ax1, _ax2) = plt.subplots(1, 2, figsize=(11, 3.6))
+        _ax1.hist(_deg, bins=_bins, color="#888888", edgecolor="white")
+        _ax1.axvline(_mean_self, color="#c0223b", linestyle="--",
+                     linewidth=1.2, label=f"mean = {_mean_self:.2f}")
+        _ax1.set_title("Your degree  k")
+        _ax1.set_xlabel("k")
+        _ax1.legend(frameon=False, fontsize=9)
+        _ax2.hist(_avg_nbr[_valid], bins=_bins, color=ACCENT,
+                  edgecolor="white")
+        _ax2.axvline(_mean_nbr, color="#c0223b", linestyle="--",
+                     linewidth=1.2, label=f"mean = {_mean_nbr:.2f}")
+        _ax2.set_title("Your friends' average degree  (A k) / k")
+        _ax2.set_xlabel("avg. neighbour degree")
+        _ax2.legend(frameon=False, fontsize=9)
+        for _ax in (_ax1, _ax2):
+            _ax.spines["top"].set_visible(False)
+            _ax.spines["right"].set_visible(False)
+        plt.tight_layout()
+        _body = _fig
 
     _diff = _mean_nbr - _mean_self
-    _verdict = (
-        "friends have a higher mean degree" if _diff > 1e-9
-        else "friends have a lower mean degree (unusual!)"
-        if _diff < -1e-9
-        else "the two means are essentially equal (degree-regular graph)"
+    if _diff > 1e-9:
+        _verdict = (
+            "your friends have more friends than you — the paradox holds"
+        )
+    elif _diff < -1e-9:
+        _verdict = "friends average fewer — unusual, degree-equal networks can do this"
+    else:
+        _verdict = "exactly equal — every node has the same degree"
+    _msg = mo.md(
+        f"Mean degree = **{_mean_self:.2f}**; mean of friends' averages = "
+        f"**{_mean_nbr:.2f}** — {_verdict}. No psychology involved: it is "
+        "pure structure, and it fell out of one multiplication and one "
+        "division."
     )
-    _note = mo.md(
-        f"On the active network: mean degree = **{_mean_self:.2f}**, mean "
-        f"of average-neighbour-degree = **{_mean_nbr:.2f}** — i.e. "
-        f"{_verdict}. The right-hand histogram is the same data reweighted "
-        "by who-appears-in-whose-friend-list."
-    )
-    mo.vstack([_fig, _note])
+    mo.vstack([_body, _msg])
     return
 
 
 # -----------------------------------------------------------------------------
-# Section 4 — A^k counts length-k paths
+# Section 4 — A^k: walks drawn on the network
 # -----------------------------------------------------------------------------
 
 
@@ -634,154 +787,218 @@ def s3_plot(A, ACCENT, g, mo, np, plt):
 def section4_header(mo):
     mo.md(r"""
     ---
-    ## 4. $A^k$ counts length-$k$ paths
+    ## 4. $A^k$ — see the walks, see the sum
 
-    The $(i, j)$ entry of $A^2$ counts **the number of length-2 walks
-    from $i$ to $j$** — equivalently, **the number of common
-    neighbours** of $i$ and $j$:
+    Here is the central fact of this app:
 
     $$
-    (A^2)_{ij} = \sum_{k} A_{ik}\, A_{kj} = |N(i) \cap N(j)|.
+    (A^2)_{ij} = \sum_{m} A_{im}\, A_{mj}
     $$
 
-    More generally, $(A^k)_{ij}$ counts length-$k$ walks from $i$ to
-    $j$. Pick a power and watch the heatmap fill in — entries that were
-    zero in $A$ become positive in $A^2$ wherever a length-2 walk
-    exists. Pick a specific $(i, j)$ cell to walk through the dot
-    product: which intermediate nodes contribute?
+    Each term is a yes/no question: *is there an edge $i \to m$, AND an
+    edge $m \to j$?* When both are 1 the product is 1 — **that term IS a
+    walk of length 2 from $i$ to $j$ through $m$**. The sum just counts
+    them. Powers continue the story: $(A^k)_{ij}$ counts walks of length
+    $k$ (walks may revisit nodes).
+
+    Pick a start, a target, and a length. Every walk is drawn on the
+    network, and every nonzero term in the sum has the same colour as
+    the walk it counts.
     """)
     return
 
 
 @app.cell
 def s4_widgets(g, mo):
+    _names = list(g.vs["name"])
+    walk_i = mo.ui.dropdown(
+        options=_names, value=_names[0], label="From i",
+    )
+    walk_j = mo.ui.dropdown(
+        options=_names, value=_names[min(2, len(_names) - 1)], label="To j",
+    )
     power_k = mo.ui.slider(
         start=1, stop=4, step=1, value=2,
-        label="Power k", show_value=True, full_width=True,
+        label="Walk length k", show_value=True, full_width=True,
     )
-    _names = list(g.vs["name"])
-    cell_i = mo.ui.dropdown(
-        options=_names, value=_names[0], label="Row i",
-    )
-    cell_j = mo.ui.dropdown(
-        options=_names, value=_names[min(1, len(_names) - 1)], label="Column j",
-    )
-    mo.hstack([power_k, cell_i, cell_j], gap=1.0, widths="equal")
-    return cell_i, cell_j, power_k
+    mo.hstack([walk_i, walk_j, power_k], gap=1.0, widths="equal")
+    return power_k, walk_i, walk_j
 
 
 @app.cell
 def s4_compute(A, np, power_k):
     _k = int(power_k.value)
-    _Ak = np.eye(A.shape[0])
-    for _ in range(_k):
-        _Ak = _Ak @ A
-    Ak = _Ak
-    return (Ak,)
+    _M = np.eye(A.shape[0])
+    for _ in range(_k - 1):
+        _M = _M @ A
+    Akm1 = _M          # A^(k-1), used to spell out the sum
+    Ak = _M @ A        # A^k
+    return Ak, Akm1
 
 
 @app.cell
-def s4_plot(A, Ak, cell_i, cell_j, g, mo, np, plt, power_k):
+def s4_plot(
+    A, ACCENT, Ak, Akm1, NUMBER_THRESHOLD, PALETTE, clean_axis, draw_graph,
+    enumerate_walks, g, layout_coords, matrix_with_numbers, mo, np,
+    plt, power_k, walk_i, walk_j,
+):
+    import matplotlib.patches as _mpatches
+    from matplotlib.path import Path as _MplPath
+
     _n = g.vcount()
     _names = list(g.vs["name"])
+    _i = _names.index(walk_i.value)
+    _j = _names.index(walk_j.value)
     _k = int(power_k.value)
+    _count = int(round(Ak[_i, _j]))
 
-    # Cap the displayed matrix to the top-30 by degree if larger.
-    if _n > 30:
-        _idx = sorted(range(_n), key=lambda i: -g.degree(i))[:30]
-        _idx = sorted(_idx)
-        _M_disp = Ak[np.ix_(_idx, _idx)]
-        _disp_names = [_names[i] for i in _idx]
-        _i_in_disp = (
-            _disp_names.index(cell_i.value)
-            if cell_i.value in _disp_names else None
+    # The matrix already knows the count; only enumerate when nonzero.
+    _walks = enumerate_walks(A, _i, _j, _k, cap=200) if _count > 0 else []
+    _MAX_DRAWN = 20
+    _drawn = _walks[:_MAX_DRAWN]
+
+    # Walk colour = colour of its last intermediate node (the m in the
+    # sum), so drawn walks and equation terms match by colour.
+    def _walk_color(w):
+        if len(w) < 3:
+            return ACCENT
+        return PALETTE[w[-2] % len(PALETTE)]
+
+    _fig, (_axG, _axE) = plt.subplots(1, 2, figsize=(12, 5.6))
+
+    # Left: the graph with walks drawn as bowed coloured curves.
+    draw_graph(_axG, g, layout_coords, vertex_color="#c8dde6")
+    _xs = [c[0] for c in layout_coords]
+    _ys = [c[1] for c in layout_coords]
+    _span = max(max(_xs) - min(_xs), max(_ys) - min(_ys), 1e-9)
+    for _t, _w in enumerate(_drawn):
+        _col = _walk_color(_w)
+        _bow = ((_t % 5) - 2) * 0.055 * _span
+        for _a, _b in zip(_w[:-1], _w[1:]):
+            _p = np.array(layout_coords[_a])
+            _q = np.array(layout_coords[_b])
+            _mid = (_p + _q) / 2
+            _d = _q - _p
+            _nrm = float(np.hypot(*_d)) or 1.0
+            _perp = np.array([-_d[1], _d[0]]) / _nrm
+            _ctrl = _mid + _perp * _bow
+            _path = _MplPath(
+                [tuple(_p), tuple(_ctrl), tuple(_q)],
+                [_MplPath.MOVETO, _MplPath.CURVE3, _MplPath.CURVE3],
+            )
+            _axG.add_patch(_mpatches.PathPatch(
+                _path, fill=False, edgecolor=_col,
+                linewidth=2.2, alpha=0.85, zorder=4,
+            ))
+    _xi, _yi = layout_coords[_i]
+    _xj, _yj = layout_coords[_j]
+    _axG.scatter([_xi], [_yi], s=520, facecolors="none",
+                 edgecolors=ACCENT, linewidths=2.5, zorder=8)
+    _axG.scatter([_xj], [_yj], s=380, facecolors="none",
+                 edgecolors="#c0223b", linewidths=2.5, zorder=8)
+    _extra = f"  (drawing {len(_drawn)} of {_count})" if _count > len(_drawn) else ""
+    _axG.set_title(
+        f"{_count} walk{'s' if _count != 1 else ''} of length {_k}: "
+        f"{walk_i.value} (blue ring) to {walk_j.value} (red ring){_extra}"
+    )
+
+    # Right: the sum, one line per intermediate node m, colour-matched.
+    clean_axis(_axE)
+    if _k == 1:
+        _v = int(round(A[_i, _j]))
+        _axE.text(
+            0.05, 0.6,
+            f"A({walk_i.value}, {walk_j.value}) = {_v}",
+            family="monospace", fontsize=13, fontweight="bold",
+            transform=_axE.transAxes,
         )
-        _j_in_disp = (
-            _disp_names.index(cell_j.value)
-            if cell_j.value in _disp_names else None
+        _axE.text(
+            0.05, 0.45,
+            "Length 1 is just the matrix entry:\n"
+            + ("there IS a direct edge." if _v else "no direct edge."),
+            fontsize=11, va="top", transform=_axE.transAxes,
         )
-        _trim_note = (
-            " · displaying top-30 nodes by degree"
-        )
+    elif _n <= NUMBER_THRESHOLD:
+        _show_all = _n <= 8
+        _w = max(len(_nm) for _nm in _names)
+        _lhs = "A" if _k == 2 else f"A^{_k - 1}"
+        _lines = [(
+            f"(A^{_k})({walk_i.value},{walk_j.value}) = "
+            f"sum over m of {_lhs}({walk_i.value},m) * A(m,{walk_j.value})",
+            "#333333", True,
+        )]
+        _skipped = 0
+        for _m in range(_n):
+            _a = Akm1[_i, _m]
+            _b = A[_m, _j]
+            _prod = _a * _b
+            if _prod == 0 and not _show_all:
+                _skipped += 1
+                continue
+            _col = PALETTE[_m % len(PALETTE)] if _prod > 0 else "#bbbbbb"
+            _lines.append((
+                f"  via {_names[_m]:<{_w}}  {int(_a)} * {int(_b)} = {int(_prod)}",
+                _col, _prod > 0,
+            ))
+        if _skipped:
+            _lines.append((f"  (+ {_skipped} terms that are 0)",
+                           "#bbbbbb", False))
+        _lines.append((
+            f"  total = {_count} walk{'s' if _count != 1 else ''}",
+            "#c0223b", True,
+        ))
+        _dy = 1.0 / (len(_lines) + 1)
+        for _t, (_txt, _col, _bold) in enumerate(_lines):
+            _axE.text(
+                0.02, 1.0 - (_t + 1) * _dy, _txt,
+                family="monospace", fontsize=10, color=_col,
+                fontweight="bold" if _bold else "normal",
+                transform=_axE.transAxes,
+            )
+        _axE.set_title("The sum — one line per stepping stone m")
     else:
-        _M_disp = Ak
-        _disp_names = _names
-        _i_in_disp = _disp_names.index(cell_i.value)
-        _j_in_disp = _disp_names.index(cell_j.value)
-        _trim_note = ""
-
-    _i_full = _names.index(cell_i.value)
-    _j_full = _names.index(cell_j.value)
-
-    _fig, _ax = plt.subplots(figsize=(7.5, 6.5))
-    _vmax = max(1.0, float(_M_disp.max()))
-    _im = _ax.imshow(_M_disp, cmap="magma", vmin=0, vmax=_vmax, aspect="equal")
-    if len(_disp_names) <= 30:
-        _ax.set_xticks(range(len(_disp_names)))
-        _ax.set_yticks(range(len(_disp_names)))
-        _ax.set_xticklabels(_disp_names, rotation=90, fontsize=8)
-        _ax.set_yticklabels(_disp_names, fontsize=8)
-    if _i_in_disp is not None and _j_in_disp is not None:
-        _ax.scatter(
-            [_j_in_disp], [_i_in_disp], s=180,
-            facecolors="none", edgecolors="#1ed8a3", linewidths=2.5,
-        )
-    _ax.set_title(f"A^{_k}   ·   max entry = {int(Ak.max())}{_trim_note}")
-    _ax.grid(False)
-    _fig.colorbar(_im, ax=_ax, fraction=0.045)
+        _axE.text(0.5, 0.5,
+                  f"(A^{_k})({walk_i.value}, {walk_j.value}) = {_count}\n\n"
+                  "Switch to a network with at most\n"
+                  f"{NUMBER_THRESHOLD} nodes to see the terms.",
+                  ha="center", va="center", fontsize=11)
     plt.tight_layout()
 
-    # Walk through the dot product for the highlighted (i, j).
-    _val = float(Ak[_i_full, _j_full])
-    if _k == 1:
-        _explain = mo.md(
-            f"**Cell ($i$={cell_i.value}, $j$={cell_j.value}) of $A^1$** "
-            f"= **{int(_val)}** — i.e. is there a direct edge $i \\to j$?"
-        )
-    elif _k == 2:
-        # Contributions: nodes m with A[i, m] * A[m, j] > 0
-        _contrib = []
-        for _m in range(_n):
-            _c = A[_i_full, _m] * A[_m, _j_full]
-            if _c > 0:
-                _contrib.append(_names[_m])
-        _explain = mo.md(
-            f"**Cell ($i$={cell_i.value}, $j$={cell_j.value}) of $A^2$** "
-            f"= **{int(_val)}**.\n\n"
-            "The dot product $(A^2)_{ij} = \\sum_m A_{im} A_{mj}$ counts "
-            "the common neighbours of $i$ and $j$. On this network "
-            "those are: "
-            f"{', '.join('`' + c + '`' for c in _contrib) if _contrib else 'none'}."
-        )
-    else:
-        _explain = mo.md(
-            f"**Cell ($i$={cell_i.value}, $j$={cell_j.value}) of $A^{_k}$** "
-            f"= **{int(_val)}**. Each unit counts one length-{_k} walk "
-            f"from $i$ to $j$ (walks may revisit nodes)."
-        )
+    # The full A^k matrix, with the chosen cell boxed.
+    _figM, _axM = plt.subplots(figsize=(6.8, 6.2))
+    matrix_with_numbers(
+        _axM, Ak, _names, highlight_cell=(_i, _j), cmap="magma",
+        title=f"A^{_k} — every cell counts walks of length {_k}",
+    )
+    plt.tight_layout()
 
-    # Diagonal note
+    _walk_texts = [
+        " -> ".join(_names[_v] for _v in _w) for _w in _drawn[:8]
+    ]
+    _list_md = (
+        ("Walks drawn: " + ";  ".join(_walk_texts)
+         + (" ; ..." if _count > 8 else "") + ".")
+        if _count > 0 else
+        f"No walk of length {_k} connects {walk_i.value} to {walk_j.value}."
+    )
     if _k == 2:
-        _diag_note = mo.md(
-            "_Note the diagonal of $A^2$ — entry $(i, i)$ is the number "
-            "of length-2 walks from $i$ back to $i$, which on an "
-            "undirected graph equals **degree($i$)**._"
+        _diag_md = (
+            " The diagonal of $A^2$ counts walks that go out and come "
+            "straight back — one per neighbour, so $(A^2)_{ii}$ = degree."
         )
     elif _k == 3:
-        _diag_note = mo.md(
-            "_The diagonal of $A^3$ counts closed length-3 walks "
-            "through each node — i.e. twice the number of triangles "
-            "containing that node. We use this in Section 5._"
+        _diag_md = (
+            " The diagonal of $A^3$ counts round trips of length 3 — "
+            "triangles. That is the next section."
         )
     else:
-        _diag_note = mo.md("")
-
-    mo.vstack([_fig, _explain, _diag_note])
+        _diag_md = ""
+    mo.vstack([_fig, _figM, mo.md(_list_md + _diag_md)])
     return
 
 
 # -----------------------------------------------------------------------------
-# Section 5 — Triangles live on the diagonal of A^3
+# Section 5 — Reachable in at most k steps
 # -----------------------------------------------------------------------------
 
 
@@ -789,110 +1006,101 @@ def s4_plot(A, Ak, cell_i, cell_j, g, mo, np, plt, power_k):
 def section5_header(mo):
     mo.md(r"""
     ---
-    ## 5. Triangles live on the diagonal of $A^3$
+    ## 5. Who can you reach in $\leq k$ steps?
 
-    A length-3 walk that returns to its starting node $i$ visits two
-    other nodes and closes a triangle. On an undirected simple graph,
-    each triangle through $i$ is counted twice in $(A^3)_{ii}$ (once in
-    each direction), so
+    Add the powers up: a cell of $A + A^2 + \dots + A^k$ is positive
+    exactly when SOME walk of length at most $k$ connects the pair. Turn
+    that into yes/no and you have answered a question no single entry of
+    $A$ could: **what is within $k$ steps of me?**
 
-    $$
-    \text{triangles through } i \;=\; \tfrac{1}{2}\,(A^3)_{ii},
-    \qquad
-    \text{total triangles} \;=\; \tfrac{1}{6}\,\text{tr}(A^3).
-    $$
-
-    The bar chart shows triangles-through-node on the left; the
-    node-link plot on the right scales each node by that count. On the
-    Florentine network watch where the Medici sit.
+    This is how "six degrees of separation", influence ranges, and
+    epidemic horizons are computed — same multiplication, summed up.
     """)
     return
 
 
 @app.cell
-def s5_plot(A, ACCENT, EDGE_COLOR, NEUTRAL_NODE, g, ig, is_directed, layout_coords, mo, np, plt):
+def s5_widgets(g, mo):
+    spread_start = mo.ui.dropdown(
+        options=list(g.vs["name"]),
+        value=g.vs["name"][0],
+        label="Start node",
+    )
+    spread_k = mo.ui.slider(
+        start=1, stop=6, step=1, value=2,
+        label="Maximum steps k", show_value=True, full_width=True,
+    )
+    mo.hstack([spread_start, spread_k], gap=1.0, widths="equal")
+    return spread_k, spread_start
+
+
+@app.cell
+def s5_plot(A, ACCENT, PALETTE, draw_graph, g, layout_coords, mo, np, plt, spread_k, spread_start):
     _n = g.vcount()
-    _names = g.vs["name"]
-    _A3 = A @ A @ A
-    _diag = np.diag(_A3)
-    if is_directed:
-        # The factor-of-2 only applies undirected; for directed graphs
-        # the diagonal of A^3 already counts directed 3-cycles once.
-        _tri_node = _diag.astype(float)
-        _total_tri = float(np.trace(_A3) / 3.0)
-        _formula_note = (
-            "(directed graph: triangles per node = $(A^3)_{ii}$, "
-            "total = $\\text{tr}(A^3)/3$)"
-        )
-    else:
-        _tri_node = _diag / 2.0
-        _total_tri = float(np.trace(_A3) / 6.0)
-        _formula_note = (
-            "(undirected: triangles per node = $(A^3)_{ii}/2$, "
-            "total = $\\text{tr}(A^3)/6$)"
-        )
+    _names = list(g.vs["name"])
+    _s = _names.index(spread_start.value)
+    _kmax = int(spread_k.value)
 
-    _fig, _axes = plt.subplots(1, 2, figsize=(12, 5.0))
-    _ax1, _ax2 = _axes
+    # First step at which each node becomes reachable, via matrix powers:
+    # (A^k)[s, v] > 0 and no smaller power reached it yet.
+    _first = np.full(_n, -1, dtype=int)
+    _first[_s] = 0
+    _Acur = np.eye(_n)
+    for _step in range(1, _kmax + 1):
+        _Acur = _Acur @ A
+        _newly = (_Acur[_s] > 0) & (_first < 0)
+        _first[_newly] = _step
+    _reached = _first > 0
 
-    _order = np.argsort(-_tri_node)
-    _ax1.bar(
-        range(_n),
-        [_tri_node[i] for i in _order],
-        color=ACCENT, edgecolor="white",
-    )
-    if _n <= 30:
-        _ax1.set_xticks(range(_n))
-        _ax1.set_xticklabels([_names[i] for i in _order], rotation=90, fontsize=8)
-    else:
-        _ax1.set_xticks([])
-    _ax1.set_title(f"Triangles through node   {_formula_note}")
-    _ax1.set_ylabel("count")
-    _ax1.spines["top"].set_visible(False)
-    _ax1.spines["right"].set_visible(False)
+    _step_colors = [PALETTE[1], PALETTE[2], PALETTE[3], PALETTE[5],
+                    PALETTE[6], PALETTE[7]]
+    _vcols = []
+    for _v in range(_n):
+        if _v == _s:
+            _vcols.append(ACCENT)
+        elif _first[_v] > 0:
+            _vcols.append(_step_colors[(_first[_v] - 1) % len(_step_colors)])
+        else:
+            _vcols.append("#dddddd")
 
-    # Right: node-link with size proportional to triangle count
-    _ax2.set_facecolor("white")
-    _ax2.grid(False)
-    _ax2.set_xticks([])
-    _ax2.set_yticks([])
-    for _side in ("top", "right", "bottom", "left"):
-        _ax2.spines[_side].set_visible(False)
-    if _tri_node.max() > 0:
-        _sizes = 10 + 35 * (_tri_node / _tri_node.max())
-    else:
-        _sizes = np.full(_n, 14.0)
-    ig.plot(
-        g,
-        target=_ax2,
-        layout=layout_coords,
-        vertex_color=NEUTRAL_NODE,
-        vertex_size=list(_sizes),
-        vertex_frame_width=0,
-        vertex_label=_names if _n <= 30 else [""] * _n,
-        vertex_label_size=8,
-        vertex_label_color="#222222",
-        edge_color=EDGE_COLOR,
-        edge_width=1.0,
-        edge_arrow_size=0.7 if g.is_directed() else 0.0,
-    )
-    _ax2.set_title(
-        f"Node size = triangles through node   ·   total = {_total_tri:.1f}"
+    _fig, _ax = plt.subplots(figsize=(7.5, 6.0))
+    draw_graph(_ax, g, layout_coords, vertex_color=_vcols)
+    _handles = [plt.Line2D([0], [0], marker="o", color="w",
+                           markerfacecolor=ACCENT, markersize=9,
+                           label="start")]
+    for _step in range(1, _kmax + 1):
+        if np.any(_first == _step):
+            _handles.append(plt.Line2D(
+                [0], [0], marker="o", color="w",
+                markerfacecolor=_step_colors[(_step - 1) % len(_step_colors)],
+                markersize=9, label=f"first reached at step {_step}",
+            ))
+    if np.any(_first < 0):
+        _handles.append(plt.Line2D([0], [0], marker="o", color="w",
+                                   markerfacecolor="#dddddd", markersize=9,
+                                   label="not reachable"))
+    _ax.legend(handles=_handles, loc="upper right", frameon=True,
+               fontsize=8)
+    _ax.set_title(
+        f"From {spread_start.value}: {int(_reached.sum())} of {_n - 1} "
+        f"other nodes within {_kmax} step{'s' if _kmax != 1 else ''}"
     )
     plt.tight_layout()
 
-    _top = int(np.argmax(_tri_node))
+    _per_step = [int((_first == _step).sum()) for _step in range(1, _kmax + 1)]
     _msg = mo.md(
-        f"**Most triangular node:** {_names[_top]} with "
-        f"{_tri_node[_top]:.1f} triangles. Total triangles in the graph: "
-        f"**{_total_tri:.1f}**."
+        "Newly reached per step: "
+        + ", ".join(f"step {_t + 1}: {_c}" for _t, _c in enumerate(_per_step))
+        + ". In matrix terms: count the positive entries in row "
+        f"**{spread_start.value}** of $A + A^2 + \\dots + A^k$ "
+        "(diagonal ignored)."
     )
     mo.vstack([_fig, _msg])
     return
 
 
 # -----------------------------------------------------------------------------
-# Section 6 — Power iteration converges to eigenvector centrality
+# Section 6 — Triangles live on the diagonal of A^3
 # -----------------------------------------------------------------------------
 
 
@@ -900,100 +1108,108 @@ def s5_plot(A, ACCENT, EDGE_COLOR, NEUTRAL_NODE, g, ig, is_directed, layout_coor
 def section6_header(mo):
     mo.md(r"""
     ---
-    ## 6. Power iteration → eigenvector centrality
+    ## 6. Triangles live on the diagonal of $A^3$
 
-    Eigenvector centrality says: *you are important if you are
-    connected to important people*. Formally, it is the leading
-    eigenvector of $A$, i.e. the vector $x$ that satisfies
+    Set the target equal to the start: $(A^3)_{ii}$ counts round trips of
+    length 3 — leave home, visit two friends, come back. Each such trip
+    traces a **triangle**. On an undirected network every triangle through
+    $i$ is walked twice (clockwise and counter-clockwise), so
 
-    $$ A x = \lambda x $$
+    $$
+    \text{triangles through } i = \tfrac{1}{2}(A^3)_{ii},
+    \qquad
+    \text{total} = \tfrac{1}{6}\,\text{tr}(A^3)
+    $$
 
-    for the largest eigenvalue $\lambda$. You can find it without ever
-    diagonalising $A$: just repeat $x \leftarrow A x$ and renormalise.
-    Each step pushes mass toward the leading eigenvector; after a few
-    iterations the bars stop moving.
-
-    Move the slider and watch the bars converge. The dashed grey line
-    shows the answer that igraph's `eigenvector_centrality()` gives —
-    same idea, just iterated further.
+    (each triangle has 3 corners, hence the extra factor 3). Triangles
+    are the atoms of **clustering** — "are my friends friends with each
+    other?" — one of the most-used quantities in all of network science.
     """)
     return
 
 
 @app.cell
-def s6_widgets(mo):
-    iter_k = mo.ui.slider(
-        start=1, stop=30, step=1, value=1,
-        label="Iterations", show_value=True, full_width=True,
-    )
-    return (iter_k,)
-
-
-@app.cell
-def s6_plot(A, ACCENT, g, iter_k, mo, np, plt):
+def s6_plot(A, ACCENT, EDGE_COLOR, NUMBER_THRESHOLD, draw_graph, g, is_directed, layout_coords, mo, np, plt):
     _n = g.vcount()
-    _names = g.vs["name"]
-    _k = int(iter_k.value)
-
-    _x = np.ones(_n) / _n
-    _history = [_x.copy()]
-    for _ in range(_k):
-        _x = A @ _x
-        _norm = np.linalg.norm(_x)
-        if _norm > 0:
-            _x = _x / _norm
-        _history.append(_x.copy())
-
-    try:
-        _true_ev = np.array(g.eigenvector_centrality(directed=g.is_directed()))
-        _true_ev = _true_ev / max(1e-12, np.linalg.norm(_true_ev))
-        _true_ev = np.abs(_true_ev)
-    except Exception:
-        _true_ev = np.zeros(_n)
-
-    _x = np.abs(_history[-1])
-    _order = np.argsort(-_true_ev) if _true_ev.sum() > 0 else np.argsort(-_x)
-
-    _fig, _ax = plt.subplots(figsize=(11, 3.8))
-    _xs = np.arange(_n)
-    _ax.bar(
-        _xs - 0.2, [_x[i] for i in _order], width=0.4,
-        color=ACCENT, edgecolor="white",
-        label=f"x after {_k} iterations",
-    )
-    _ax.bar(
-        _xs + 0.2, [_true_ev[i] for i in _order], width=0.4,
-        color="#bbbbbb", edgecolor="white",
-        label="igraph eigenvector_centrality()",
-    )
-    if _n <= 30:
-        _ax.set_xticks(range(_n))
-        _ax.set_xticklabels([_names[i] for i in _order], rotation=90, fontsize=8)
+    _names = list(g.vs["name"])
+    _A3 = A @ A @ A
+    _diag = np.diag(_A3)
+    if is_directed:
+        _tri_node = _diag.astype(float)
+        _total = float(np.trace(_A3) / 3.0)
+        _formula = "directed: per node $(A^3)_{ii}$, total $\\mathrm{tr}(A^3)/3$"
     else:
-        _ax.set_xticks([])
-    _ax.set_title("Power iteration vs. igraph eigenvector centrality")
-    _ax.legend(frameon=False, fontsize=9)
-    _ax.spines["top"].set_visible(False)
-    _ax.spines["right"].set_visible(False)
+        _tri_node = _diag / 2.0
+        _total = float(np.trace(_A3) / 6.0)
+        _formula = "undirected: per node $(A^3)_{ii}/2$, total $\\mathrm{tr}(A^3)/6$"
+
+    _fig, (_axL, _axR) = plt.subplots(
+        1, 2, figsize=(12, 5.2), gridspec_kw={"width_ratios": [1.3, 1.0]},
+    )
+
+    # Left: graph; triangle edges highlighted, counts written on nodes.
+    if not is_directed:
+        _A2 = A @ A
+        _ecols = []
+        _ewids = []
+        for _e in g.es:
+            _u, _v = _e.source, _e.target
+            if _A2[_u, _v] > 0:  # the edge closes at least one triangle
+                _ecols.append("#e07b00")
+                _ewids.append(2.5)
+            else:
+                _ecols.append(EDGE_COLOR)
+                _ewids.append(1.0)
+    else:
+        _ecols = None
+        _ewids = 1.0
+    if _tri_node.max() > 0:
+        _sizes = list(14 + 26 * (_tri_node / _tri_node.max()))
+    else:
+        _sizes = None
+    if _n <= NUMBER_THRESHOLD:
+        _labels = [
+            f"{_names[_v]}\n{_tri_node[_v]:g}" for _v in range(_n)
+        ]
+    else:
+        _labels = [""] * _n
+    draw_graph(_axL, g, layout_coords, vertex_color=ACCENT,
+               vertex_size=_sizes, labels=_labels, label_size=8,
+               edge_color=_ecols, edge_width=_ewids)
+    _axL.set_title(
+        "Triangles through each node"
+        + ("  (orange edge = part of a triangle)" if not is_directed else "")
+    )
+
+    # Right: sorted bar chart.
+    _order = np.argsort(-_tri_node)
+    _axR.bar(range(_n), [_tri_node[_o] for _o in _order],
+             color=ACCENT, edgecolor="white")
+    if _n <= 30:
+        _axR.set_xticks(range(_n))
+        _axR.set_xticklabels([_names[_o] for _o in _order],
+                             rotation=90, fontsize=8)
+    else:
+        _axR.set_xticks([])
+    _axR.set_title(f"diag(A^3) scaled  ({_formula})")
+    _axR.spines["top"].set_visible(False)
+    _axR.spines["right"].set_visible(False)
     plt.tight_layout()
 
-    _gap = float(np.linalg.norm(np.abs(_history[-1]) - _true_ev))
-    _note = mo.md(
-        f"After **{_k}** iterations the L2 distance between the iterate "
-        f"and igraph's reference vector is **{_gap:.4f}**. Increase the "
-        "slider and it should approach zero.\n\n"
-        "_Same machinery, different questions:_ Katz centrality adds a "
-        "constant $\\beta \\mathbf{1}$ at every step "
-        "($x \\leftarrow \\alpha A x + \\beta \\mathbf{1}$); PageRank "
-        "replaces $A$ with a row-normalised transition matrix and adds "
-        "a teleport term."
+    _top = int(np.argmax(_tri_node))
+    _msg = mo.md(
+        f"**Total triangles: {_total:g}.** Most triangular node: "
+        f"**{_names[_top]}** ({_tri_node[_top]:g}). Divide each node's "
+        "count by the number of pairs of its neighbours and you get the "
+        "**local clustering coefficient** — same diagonal, one division "
+        "away."
     )
-    mo.vstack([_fig, _note])
+    mo.vstack([_fig, _msg])
     return
 
 
 # -----------------------------------------------------------------------------
-# Section 7 — Random walks and PageRank
+# Section 7 — Multiply again and again
 # -----------------------------------------------------------------------------
 
 
@@ -1001,266 +1217,88 @@ def s6_plot(A, ACCENT, g, iter_k, mo, np, plt):
 def section7_header(mo):
     mo.md(r"""
     ---
-    ## 7. Random walks → PageRank
+    ## 7. Multiply again and again — a ranking emerges
 
-    Row-normalise the adjacency matrix to get a transition matrix
-    $P = D^{-1} A$. Each row of $P$ sums to 1 — entry $P_{ij}$ is the
-    probability of stepping from $i$ to $j$ if you pick a neighbour
-    uniformly at random.
+    One multiplication asked about neighbours; two asked about walks of
+    length 2. What if you never stop? Iterate
 
-    Start a random walker at one node (mass = 1 there, 0 elsewhere) and
-    iterate $x \leftarrow P^\top x$. After enough steps, $x$ converges
-    to the stationary distribution. For undirected connected graphs
-    it's proportional to degree; for directed graphs (try the *Directed
-    toy*) it can get stuck in sinks — which is exactly what PageRank's
-    teleport term fixes.
+    $$
+    x \leftarrow \frac{Ax}{\lVert Ax \rVert}
+    $$
+
+    starting from all-equal values. Each round, nodes with
+    well-connected neighbours pull ahead — having many walks of every
+    length flowing through you is what "being important" turns out to
+    mean. After a few rounds the bars stop moving: the network has
+    settled on a verdict.
     """)
     return
 
 
 @app.cell
-def s7_widgets(g, mo):
-    start_node = mo.ui.dropdown(
-        options=list(g.vs["name"]),
-        value=g.vs["name"][0],
-        label="Walker starts at",
+def s7_widgets(mo):
+    iter_k = mo.ui.slider(
+        start=0, stop=30, step=1, value=1,
+        label="Iterations", show_value=True, full_width=True,
     )
-    walk_steps = mo.ui.slider(
-        start=0, stop=50, step=1, value=5,
-        label="Steps t", show_value=True, full_width=True,
-    )
-    mo.hstack([start_node, walk_steps], gap=1.0, widths="equal")
-    return start_node, walk_steps
+    iter_k
+    return (iter_k,)
 
 
 @app.cell
-def s7_plot(
-    A, EDGE_COLOR, g, ig, is_directed, layout_coords, mo, np, plt,
-    start_node, walk_steps,
-):
+def s7_plot(A, ACCENT, g, iter_k, mo, np, plt):
     _n = g.vcount()
-    _names = g.vs["name"]
+    _names = list(g.vs["name"])
+    _k = int(iter_k.value)
 
-    # Row-normalised transition matrix.  Handle dangling nodes (degree 0
-    # in the out-direction) by leaving their row all zero — mass that
-    # lands there gets stuck, which is the point of the section.
-    _row_sums = A.sum(axis=1)
-    _safe = np.where(_row_sums > 0, _row_sums, 1.0)
-    P = A / _safe[:, None]
-    P[_row_sums == 0] = 0.0
-
-    _idx = _names.index(start_node.value)
-    _x = np.zeros(_n)
-    _x[_idx] = 1.0
-    _t = int(walk_steps.value)
-    for _ in range(_t):
-        _x = P.T @ _x
+    _x = np.ones(_n) / np.sqrt(_n)
+    for _ in range(_k):
+        _xn = A @ _x
+        _nrm = np.linalg.norm(_xn)
+        if _nrm > 0:
+            _x = _xn / _nrm
+    _x = np.abs(_x)
 
     try:
-        _pr = np.array(g.pagerank(directed=g.is_directed(), damping=0.85))
+        _ref = np.array(g.eigenvector_centrality(directed=g.is_directed()))
+        _ref = np.abs(_ref) / max(1e-12, np.linalg.norm(_ref))
     except Exception:
-        _pr = np.zeros(_n)
+        _ref = np.zeros(_n)
 
-    _fig, _axes = plt.subplots(1, 2, figsize=(12, 5.0))
-    _axL, _axR = _axes
-
-    # Left: node-link coloured by current mass
-    _axL.set_facecolor("white")
-    _axL.grid(False)
-    _axL.set_xticks([])
-    _axL.set_yticks([])
-    for _side in ("top", "right", "bottom", "left"):
-        _axL.spines[_side].set_visible(False)
-    _vmax = max(1e-9, float(_x.max()))
-    _cmap = plt.get_cmap("coolwarm")
-    _colors = [_cmap(min(1.0, _x[i] / _vmax)) for i in range(_n)]
-    _sizes = 12 + 30 * (_x / max(_vmax, 1e-9))
-    ig.plot(
-        g,
-        target=_axL,
-        layout=layout_coords,
-        vertex_color=_colors,
-        vertex_size=list(_sizes),
-        vertex_frame_width=0,
-        vertex_label=_names if _n <= 30 else [""] * _n,
-        vertex_label_size=8,
-        vertex_label_color="#222222",
-        edge_color=EDGE_COLOR,
-        edge_width=1.0,
-        edge_arrow_size=0.7 if g.is_directed() else 0.0,
-    )
-    _axL.set_title(
-        f"Mass at step t = {_t}  ·  total = {_x.sum():.3f}  "
-        f"(start: {start_node.value})"
-    )
-
-    # Right: bar chart vs. PageRank
-    _order = np.argsort(-_pr) if _pr.sum() > 0 else np.argsort(-_x)
+    _order = np.argsort(-_ref) if _ref.sum() > 0 else np.argsort(-_x)
     _xs = np.arange(_n)
-    _axR.bar(
-        _xs - 0.2, [_x[i] for i in _order], width=0.4,
-        color="#0b789d", edgecolor="white", label=f"walker at t = {_t}",
-    )
-    _axR.bar(
-        _xs + 0.2, [_pr[i] for i in _order], width=0.4,
-        color="#bbbbbb", edgecolor="white", label="igraph pagerank()",
-    )
+    _fig, _ax = plt.subplots(figsize=(11, 3.8))
+    _ax.bar(_xs - 0.2, [_x[_o] for _o in _order], width=0.4,
+            color=ACCENT, edgecolor="white",
+            label=f"x after {_k} iteration{'s' if _k != 1 else ''}")
+    _ax.bar(_xs + 0.2, [_ref[_o] for _o in _order], width=0.4,
+            color="#bbbbbb", edgecolor="white",
+            label="where it converges (igraph eigenvector centrality)")
     if _n <= 30:
-        _axR.set_xticks(range(_n))
-        _axR.set_xticklabels([_names[i] for i in _order], rotation=90, fontsize=8)
+        _ax.set_xticks(range(_n))
+        _ax.set_xticklabels([_names[_o] for _o in _order],
+                            rotation=90, fontsize=8)
     else:
-        _axR.set_xticks([])
-    _axR.set_title("Walker mass vs. PageRank (teleport = 0.15)")
-    _axR.legend(frameon=False, fontsize=9)
-    _axR.spines["top"].set_visible(False)
-    _axR.spines["right"].set_visible(False)
+        _ax.set_xticks([])
+    _ax.legend(frameon=False, fontsize=9)
+    _ax.set_title("Repeated multiplication settles on a ranking")
+    _ax.spines["top"].set_visible(False)
+    _ax.spines["right"].set_visible(False)
     plt.tight_layout()
 
-    if is_directed:
-        _note = (
-            "On directed graphs the pure random walk can leak mass into "
-            "sinks (rows of $A$ that sum to zero), so $\\sum x$ drops "
-            "below 1 over time. PageRank prevents this by *teleporting* "
-            "with probability 0.15 to a uniform node — that's the "
-            "constant offset between the blue and grey bars."
-        )
-    else:
-        _note = (
-            "On a connected undirected graph the stationary distribution "
-            "is **proportional to degree** — high-degree nodes get visited "
-            "more often. PageRank applies a small uniform teleport on "
-            "top, but for undirected graphs the two are nearly identical."
-        )
-    mo.vstack([_fig, mo.md(_note)])
-    return
-
-
-# -----------------------------------------------------------------------------
-# Section 8 — Same network, different questions
-# -----------------------------------------------------------------------------
-
-
-@app.cell
-def section8_header(mo):
-    mo.md(r"""
-    ---
-    ## 8. Same network, different questions
-
-    Each centrality below is a different question asked of the same
-    adjacency matrix — and the matrix answers each one with a different
-    ranking.
-
-    - **Degree** = $A \mathbf{1}$. *How many friends do I have?*
-    - **Eigenvector** = leading eigenvector of $A$. *Are my friends
-      important?*
-    - **PageRank** = stationary distribution of $P^\top$ with teleport.
-      *Where does a random walker spend its time?*
-    - **Betweenness** = fraction of shortest paths through me. *Am I a
-      bridge?*
-    - **Closeness** = inverse of average shortest-path distance. *Am I
-      central in the small-world sense?*
-
-    Five panels, one network. Where the rankings agree, you're seeing a
-    structurally obvious centre. Where they disagree, you're seeing the
-    *question* doing the work, not the network.
-    """)
-    return
-
-
-@app.cell
-def s8_grid(EDGE_COLOR, PALETTE, g, ig, layout_coords, mo, np, plt):
-    _n = g.vcount()
-    _names = g.vs["name"]
-
-    def _safe(fn, fallback):
-        try:
-            v = np.array(fn(), dtype=float)
-            if not np.all(np.isfinite(v)):
-                v = np.nan_to_num(v, nan=0.0, posinf=0.0, neginf=0.0)
-            return v
-        except Exception:
-            return np.array(fallback, dtype=float)
-
-    def _ev():
-        if g.is_connected(mode="weak") or _n == 0:
-            return g.eigenvector_centrality(directed=g.is_directed())
-        _comps = g.connected_components(mode="weak")
-        _gc_ids = max(_comps, key=len)
-        _gc = g.subgraph(_gc_ids)
-        _vals = _gc.eigenvector_centrality(directed=g.is_directed())
-        _out = [0.0] * _n
-        for _i, _node in enumerate(_gc_ids):
-            _out[_node] = _vals[_i]
-        return _out
-
-    centralities = {
-        "Degree": np.array(g.degree(), dtype=float),
-        "Eigenvector": _safe(_ev, [0] * _n),
-        "PageRank": _safe(
-            lambda: g.pagerank(directed=g.is_directed(), damping=0.85),
-            [0] * _n,
-        ),
-        "Betweenness": _safe(lambda: g.betweenness(), [0] * _n),
-        "Closeness": _safe(lambda: g.closeness(), [0] * _n),
-    }
-
-    _measures = list(centralities)
-    _fig, _axes = plt.subplots(2, 3, figsize=(13, 8.5), constrained_layout=True)
-    _show_labels = _n <= 30
-    _cmap = plt.get_cmap("coolwarm")
-
-    for _ax, _name in zip(_axes.flat, _measures + [None]):
-        _ax.set_facecolor("white")
-        _ax.grid(False)
-        _ax.set_xticks([])
-        _ax.set_yticks([])
-        for _side in ("top", "right", "bottom", "left"):
-            _ax.spines[_side].set_visible(False)
-        if _name is None:
-            _ax.set_visible(False)
-            continue
-        _c = np.asarray(centralities[_name], dtype=float)
-        _rng = _c.max() - _c.min()
-        if _rng > 0:
-            _t = (_c - _c.min()) / _rng
-        else:
-            _t = np.zeros_like(_c)
-        _colors = [_cmap(float(v)) for v in _t]
-        ig.plot(
-            g,
-            target=_ax,
-            layout=layout_coords,
-            vertex_color=_colors,
-            vertex_size=14,
-            vertex_frame_width=0,
-            vertex_label=_names if _show_labels else [""] * _n,
-            vertex_label_size=8,
-            edge_color=EDGE_COLOR,
-            edge_width=0.9,
-            edge_arrow_size=0.6 if g.is_directed() else 0.0,
-        )
-        _top = int(np.argmax(_c))
-        _x, _y = layout_coords[_top]
-        _ax.scatter(
-            [_x], [_y], s=380, facecolors="none",
-            edgecolors="#c0223b", linewidths=2.2, zorder=10,
-        )
-        _ax.set_title(
-            f"{_name}  ·  top: {_names[_top]} ({_c[_top]:.3g})",
-            fontsize=11,
-        )
-
-    _lines = ["| Centrality | 1st | 2nd | 3rd |", "|---|---|---|---|"]
-    for _name in _measures:
-        _c = centralities[_name]
-        _order = np.argsort(-_c)[:3]
-        _top = " | ".join(
-            f"{_names[i]} ({_c[i]:.3g})" for i in _order
-        )
-        _lines.append(f"| {_name} | {_top} |")
-    _table = mo.md("\n".join(_lines))
-
-    mo.vstack([_fig, _table])
+    _gap = float(np.linalg.norm(_x - _ref))
+    _msg = mo.md(
+        f"Distance to the converged ranking after {_k} "
+        f"iteration{'s' if _k != 1 else ''}: **{_gap:.4f}** — slide right "
+        "and watch it go to zero.\n\n"
+        "This limit is **eigenvector centrality**. Do the same iteration "
+        "on a row-normalised $A$ with a little random jumping and you get "
+        "**PageRank** — the multiplication that ranked the web. Walks "
+        "also power clustering (Section 6), community detection, and the "
+        "node embeddings of Day 3. One operation, half of network "
+        "science."
+    )
+    mo.vstack([_fig, _msg])
     return
 
 
