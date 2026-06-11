@@ -1293,12 +1293,60 @@ def s7_plot(A, ACCENT, g, iter_k, mo, np, plt):
         "and watch it go to zero.\n\n"
         "This limit is **eigenvector centrality**. Do the same iteration "
         "on a row-normalised $A$ with a little random jumping and you get "
-        "**PageRank** — the multiplication that ranked the web. Walks "
-        "also power clustering (Section 6), community detection, and the "
-        "node embeddings of Day 3. One operation, half of network "
-        "science."
+        "**PageRank** — the multiplication that ranked the web. And this "
+        "is not the end of the story: the last section maps where the "
+        "same multiplication returns during the rest of the week."
     )
     mo.vstack([_fig, _msg])
+    return
+
+
+# -----------------------------------------------------------------------------
+# Section 8 — The same multiplication, the rest of the week
+# -----------------------------------------------------------------------------
+
+
+@app.cell
+def section8_connections(mo):
+    mo.md(r"""
+    ---
+    ## 8. The same multiplication, the rest of the week
+
+    Everything in this app was one operation — multiply by $A$, read the
+    paths. That operation is the quiet workhorse of the whole summer
+    school:
+
+    - **Graph models (Day 2).** Is my network surprising? Compare its
+      common-neighbour and triangle counts — the $(A^2)_{ij}$ and
+      $\mathrm{diag}(A^3)$ of Sections 4 and 6 — against what a random
+      graph with the same degrees would give. "More triangles than
+      chance" is a statement about path counts.
+    - **Community detection (Day 3a).** Random walkers get trapped
+      inside densely connected groups: communities are the places the
+      walks of Sections 4 and 5 keep returning to. Spectral methods read
+      the groups directly off eigenvectors of (matrices built from) $A$
+      — found by exactly the repeated multiplication of Section 7.
+    - **Link prediction (Day 3b).** The simplest score for a missing
+      edge $(i, j)$ is the number of common neighbours — literally
+      $(A^2)_{ij}$ from Section 4. Fancier scores (Adamic-Adar, Katz)
+      are the same idea with longer walks weighted less.
+    - **Node embeddings (Day 3b).** Embeddings place two nodes close
+      together when random walks visit them together. The co-occurrence
+      counts they are trained on are entries of powers of the walk
+      matrix — Section 4, dressed up for machine learning.
+    - **Graphical models (Day 4).** The matrix changes meaning — an
+      edge now says "conditionally dependent" — but inference is message
+      passing: every node repeatedly combines its neighbours' values,
+      which is the $Ax$ of Section 2 in disguise.
+    - **Social contagion (Day 5).** Spreading follows the reachability
+      rings of Section 5, and whether an outbreak takes off or dies is
+      decided by the leading eigenvalue of $A$ — the number that
+      Section 7's iteration grows along.
+
+    When a method this week looks mysterious, ask the question this app
+    has been asking all along: *which walks is it counting, and how are
+    they weighted?* That one question unlocks most of network science.
+    """)
     return
 
 

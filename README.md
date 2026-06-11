@@ -16,7 +16,7 @@ Every push to `main` rebuilds the WASM bundle via GitHub Actions
 
 ## What's inside
 
-Seven short sections, all driven by the same active network. The default
+Eight short sections, all driven by the same active network. The default
 is a five-person toy network, small enough that every number in every
 equation is visible and checkable by hand:
 
@@ -35,6 +35,9 @@ equation is visible and checkable by hand:
    nodes, triangle edges highlighted.
 7. **Multiply again and again** — power iteration settles on a ranking
    (a teaser for eigenvector centrality and PageRank).
+8. **The same multiplication, the rest of the week** — how path
+   counting returns in graph models, community detection, link
+   prediction, node embeddings, graphical models, and social contagion.
 
 Default network: "Five friends" (5 nodes). Also bundled: a small
 directed toy, the Krackhardt Kite, Florentine families (Padgett 1994),
