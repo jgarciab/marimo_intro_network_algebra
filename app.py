@@ -44,14 +44,14 @@ def imports():
     )
     ACCENT = "#0b789d"
     NEUTRAL_NODE = "#0b789d"
-    EDGE_COLOR = (0.85, 0.85, 0.85, 0.35)
+    EDGE_COLOR = (0.66, 0.66, 0.66, 0.8)
 
     # Tighter cap than the day1 intuition app — matrix displays do not
     # scale much past ~60 nodes.
     MAX_NODES = 60
     # Up to this size we print the actual numbers inside the matrix and
-    # spell out the sums term by term. Florentine (16) is the largest
-    # network that still gets the full numeric treatment.
+    # spell out the multiplications term by term. Florentine (16) is the
+    # largest network that still gets the full numeric treatment.
     NUMBER_THRESHOLD = 16
     return (
         ACCENT, EDGE_COLOR, MAX_NODES, NEUTRAL_NODE, NUMBER_THRESHOLD,
@@ -67,7 +67,7 @@ def imports():
 @app.cell
 def network_catalogue(ig):
     # Five friends — the default. Small enough that every entry of A,
-    # every term of every sum, and every walk can be read directly.
+    # every term of every product, and every walk can be read directly.
     # A triangle (Alice, Bob, Carol) plus a tail (Carol-David-Emma).
     def _five_friends():
         g_ = ig.Graph(
@@ -259,8 +259,8 @@ def sidebar_cell(NUMBER_THRESHOLD, bundled_choice, file_upload, g, is_directed, 
         _items.append(mo.md(f"> {upload_warning}"))
     _items.append(mo.md("---"))
     _items.append(mo.md(
-        "_The active network drives every section below. Equations are "
-        f"spelled out with real numbers for networks up to "
+        "_The active network drives every section below. Multiplications "
+        f"are spelled out with real numbers for networks up to "
         f"{NUMBER_THRESHOLD} nodes — start with the tiny default, then "
         "switch to a bigger one to see that nothing changes except "
         "the size._"
@@ -306,12 +306,12 @@ def plot_helpers(EDGE_COLOR, NUMBER_THRESHOLD, ig, np, plt):
             ax.spines[side].set_visible(False)
 
     def draw_graph(ax, g_, coords, vertex_color="#0b789d", vertex_size=None,
-                   labels=None, edge_color=None, edge_width=1.0,
-                   label_size=9):
+                   labels=None, edge_color=None, edge_width=1.2,
+                   label_size=12):
         clean_axis(ax)
         n_ = g_.vcount()
         if vertex_size is None:
-            vertex_size = 26 if n_ <= 16 else (16 if n_ <= 34 else 10)
+            vertex_size = 30 if n_ <= 16 else (18 if n_ <= 34 else 10)
         if labels is None:
             labels = g_.vs["name"] if n_ <= 30 else [""] * n_
         ig.plot(
@@ -340,13 +340,13 @@ def plot_helpers(EDGE_COLOR, NUMBER_THRESHOLD, ig, np, plt):
         if n_ <= 30:
             ax.set_xticks(range(n_))
             ax.set_yticks(range(n_))
-            ax.set_xticklabels(names_, rotation=90, fontsize=8)
-            ax.set_yticklabels(names_, fontsize=8)
+            ax.set_xticklabels(names_, rotation=90, fontsize=9)
+            ax.set_yticklabels(names_, fontsize=9)
         else:
             ax.set_xticks([])
             ax.set_yticks([])
         if n_ <= NUMBER_THRESHOLD:
-            fs = 12 if n_ <= 8 else 8
+            fs = 12 if n_ <= 8 else 9
             for ri in range(n_):
                 for ci in range(n_):
                     v = M[ri, ci]
@@ -372,6 +372,56 @@ def plot_helpers(EDGE_COLOR, NUMBER_THRESHOLD, ig, np, plt):
         if title:
             ax.set_title(title)
 
+    def draw_block(ax, M, x0, names_, fs, row_names=False, col_names=False,
+                   hl_row=None, hl_col=None, hl_cell=None,
+                   hl_row_color="#c0223b", hl_col_color="#0b789d",
+                   hl_cell_color="#1ed8a3"):
+        """Draw matrix M as a numeric grid starting at x = x0.
+
+        Row 0 is at the top (caller must invert the y axis). Returns the
+        x coordinate of the right edge of the block.
+        """
+        nr, nc = M.shape
+        for r in range(nr + 1):
+            ax.plot([x0, x0 + nc], [r, r], color="#cccccc",
+                    linewidth=0.6, zorder=1)
+        for c in range(nc + 1):
+            ax.plot([x0 + c, x0 + c], [0, nr], color="#cccccc",
+                    linewidth=0.6, zorder=1)
+        if hl_row is not None:
+            ax.add_patch(plt.Rectangle(
+                (x0, hl_row), nc, 1, facecolor=hl_row_color, alpha=0.12,
+                edgecolor=hl_row_color, linewidth=1.8, zorder=2,
+            ))
+        if hl_col is not None:
+            ax.add_patch(plt.Rectangle(
+                (x0 + hl_col, 0), 1, nr, facecolor=hl_col_color,
+                alpha=0.12, edgecolor=hl_col_color, linewidth=1.8,
+                zorder=2,
+            ))
+        if hl_cell is not None:
+            cr, cc = hl_cell
+            ax.add_patch(plt.Rectangle(
+                (x0 + cc, cr), 1, 1, fill=False,
+                edgecolor=hl_cell_color, linewidth=2.5, zorder=4,
+            ))
+        for r in range(nr):
+            for c in range(nc):
+                v = M[r, c]
+                ax.text(x0 + c + 0.5, r + 0.5, f"{v:g}",
+                        ha="center", va="center", fontsize=fs,
+                        color="#aaaaaa" if v == 0 else "#222222", zorder=3)
+        if row_names:
+            for r in range(nr):
+                ax.text(x0 - 0.3, r + 0.5, names_[r], ha="right",
+                        va="center", fontsize=fs, color="#333333")
+        if col_names:
+            for c in range(nc):
+                ax.text(x0 + c + 0.5, -0.3, names_[c], ha="center",
+                        va="bottom", rotation=90, fontsize=fs,
+                        color="#333333")
+        return x0 + nc
+
     def enumerate_walks(A_, start, end, k, cap=200):
         """All walks of length k from start to end (node index lists)."""
         n_ = A_.shape[0]
@@ -393,7 +443,10 @@ def plot_helpers(EDGE_COLOR, NUMBER_THRESHOLD, ig, np, plt):
         dfs([start])
         return out
 
-    return clean_axis, draw_graph, enumerate_walks, matrix_with_numbers
+    return (
+        clean_axis, draw_block, draw_graph, enumerate_walks,
+        matrix_with_numbers,
+    )
 
 
 # -----------------------------------------------------------------------------
@@ -406,22 +459,25 @@ def title(mo):
     mo.md(r"""
     # Matrix multiplication is counting paths
 
+    Javier Garcia-Bernardo — ODISSEI Social Data Science team (SoDa) &
+    Department of Methodology and Statistics, Utrecht University
+
     A network can be written as a matrix $A$: one row and one column per
     node, with $A_{ij} = 1$ when $i$ and $j$ are connected. That is just
     storage. The magic starts when you **multiply**:
 
-    - $A x$ asks every node a question about its **neighbours** (1 step).
-    - $A^2$ counts **walks of length 2** — friends of friends.
-    - $A^3$ has **triangles** sitting on its diagonal.
+    - `A @ x` asks every node a question about its **neighbours** (1 step).
+    - `A @ A` counts **walks of length 2** — friends of friends.
+    - The diagonal of `A @ A @ A` counts **triangles**.
     - Multiplying again and again makes a notion of **importance** emerge.
 
     The same trick — follow the paths, add them up — is behind search
     ranking, epidemic models, recommendation systems, and community
     detection. Learn to read one multiplication and you can read them all.
 
-    The default network is five people, so every number in every equation
-    is visible. Nothing is hidden inside the math: you can check each sum
-    with your finger on the picture.
+    The default network is five people, so every number in every
+    multiplication is visible. Nothing is hidden inside the math: you can
+    check each product with your finger on the picture.
     """)
     return
 
@@ -473,10 +529,10 @@ def s1_plot(A, ACCENT, EDGE_COLOR, draw_graph, g, layout_coords, matrix_with_num
     for _e in g.es:
         if _f in (_e.source, _e.target):
             _ecols.append(ACCENT)
-            _ewids.append(2.5)
+            _ewids.append(3.0)
         else:
             _ecols.append(EDGE_COLOR)
-            _ewids.append(1.0)
+            _ewids.append(1.2)
     _vcols = ["#c8dde6"] * _n
     _vcols[_f] = ACCENT
     draw_graph(_axL, g, layout_coords, vertex_color=_vcols,
@@ -517,22 +573,23 @@ def s1_plot(A, ACCENT, EDGE_COLOR, draw_graph, g, layout_coords, matrix_with_num
 def section2_header(mo):
     mo.md(r"""
     ---
-    ## 2. $Ax$ — ask every node about its neighbours
+    ## 2. `A @ x` — ask every node about its neighbours
 
-    Multiply $A$ by a vector $x$ (one value per node) and you get a new
-    vector $y = Ax$ with
+    Multiply $A$ by a vector $x$ (one value per node):
 
     $$
-    y_i = \sum_{j} A_{ij}\, x_j .
+    y = A\,x
     $$
 
-    The 1s in row $i$ pick out $i$'s neighbours; the 0s erase everyone
-    else. So **$y_i$ is just the sum of $x$ over $i$'s neighbours** — no
-    loops, no code, one multiplication.
+    Entry $i$ of the result is **row $i$ of $A$ times the vector $x$**:
+    the 1s in the row keep exactly the neighbours' values, the 0s erase
+    everyone else. So $y_i$ is the total of $x$ over $i$'s neighbours —
+    no loops, no code, one multiplication.
 
-    Try it with the number of children each person has: $y_{\text{Alice}}$
-    becomes "how many children do Alice's friends have, in total?". With
-    $x$ = all ones, the sum counts the neighbours themselves: the degree.
+    Try it with the number of children each person has: $y$ answers
+    "how many children do my friends have, in total?" for everybody at
+    once. With $x$ = all ones, each neighbour contributes 1, so $y$ is
+    the degree.
     """)
     return
 
@@ -550,14 +607,14 @@ def s2_widgets(g, mo):
     focus_node = mo.ui.dropdown(
         options=list(g.vs["name"]),
         value=g.vs["name"][0],
-        label="Spell out the sum for",
+        label="Spell out the multiplication for",
     )
     mo.hstack([x_kind, focus_node], gap=1.0, widths="equal")
     return focus_node, x_kind
 
 
 @app.cell
-def s2_plot(A, ACCENT, EDGE_COLOR, NUMBER_THRESHOLD, clean_axis, draw_graph, focus_node, g, layout_coords, mo, np, plt, x_kind):
+def s2_plot(A, ACCENT, EDGE_COLOR, NUMBER_THRESHOLD, clean_axis, draw_block, draw_graph, focus_node, g, layout_coords, mo, np, plt, x_kind):
     _n = g.vcount()
     _names = list(g.vs["name"])
     _f = _names.index(focus_node.value)
@@ -575,23 +632,22 @@ def s2_plot(A, ACCENT, EDGE_COLOR, NUMBER_THRESHOLD, clean_axis, draw_graph, foc
 
     _y = A @ _x
 
-    _fig = plt.figure(figsize=(11.5, 8.0))
-    _gs = _fig.add_gridspec(2, 2, height_ratios=[1.5, 1.0])
-    _axG = _fig.add_subplot(_gs[0, 0])
-    _axE = _fig.add_subplot(_gs[0, 1])
-    _axX = _fig.add_subplot(_gs[1, 0])
-    _axY = _fig.add_subplot(_gs[1, 1])
+    # Figure 1: graph (x values on the nodes) + bar charts of x and y.
+    _fig1 = plt.figure(figsize=(11.5, 5.2))
+    _gs = _fig1.add_gridspec(2, 2, width_ratios=[1.5, 1.0])
+    _axG = _fig1.add_subplot(_gs[:, 0])
+    _axX = _fig1.add_subplot(_gs[0, 1])
+    _axY = _fig1.add_subplot(_gs[1, 1])
 
-    # Top left: graph; every node carries its x value, focus highlighted.
     _ecols = []
     _ewids = []
     for _e in g.es:
         if _f in (_e.source, _e.target):
             _ecols.append(ACCENT)
-            _ewids.append(2.5)
+            _ewids.append(3.0)
         else:
             _ecols.append(EDGE_COLOR)
-            _ewids.append(1.0)
+            _ewids.append(1.2)
     _vcols = ["#c8dde6"] * _n
     _vcols[_f] = ACCENT
     if _n <= NUMBER_THRESHOLD:
@@ -600,82 +656,100 @@ def s2_plot(A, ACCENT, EDGE_COLOR, NUMBER_THRESHOLD, clean_axis, draw_graph, foc
         _labels = None
     draw_graph(_axG, g, layout_coords, vertex_color=_vcols,
                edge_color=_ecols, edge_width=_ewids, labels=_labels,
-               label_size=8)
+               label_size=11)
     _axG.set_title(f"Each node carries its x value  ({_xlabel})")
 
-    # Top right: the sum for the focus node, spelled out term by term.
-    clean_axis(_axE)
-    _axE.set_xlim(0, 1)
-    _axE.set_ylim(0, 1)
-    if _n <= NUMBER_THRESHOLD:
-        _show_all = _n <= 8
-        _w = max(len(_nm) for _nm in _names)
-        _lines = [(f"y({focus_node.value}) = sum of A({focus_node.value}, j) * x(j)",
-                   "#333333", True)]
-        _skipped = 0
-        for _j in range(_n):
-            _a = A[_f, _j]
-            _prod = _a * _x[_j]
-            if _a == 0 and not _show_all:
-                _skipped += 1
-                continue
-            _col = "#bbbbbb" if _a == 0 else "#333333"
-            _lines.append((
-                f"  {_names[_j]:<{_w}}   {int(_a)} * {_x[_j]:g} = {_prod:g}",
-                _col, False,
-            ))
-        if _skipped:
-            _lines.append((f"  (+ {_skipped} terms that are 0 * x = 0)",
-                           "#bbbbbb", False))
-        _lines.append((f"  total: y({focus_node.value}) = {_y[_f]:g}",
-                       "#c0223b", True))
-        _dy = 1.0 / (len(_lines) + 1)
-        for _t, (_txt, _col, _bold) in enumerate(_lines):
-            _axE.text(
-                0.02, 1.0 - (_t + 1) * _dy, _txt,
-                family="monospace", fontsize=10.5, color=_col,
-                fontweight="bold" if _bold else "normal",
-                transform=_axE.transAxes,
-            )
-        _axE.set_title("The sum, spelled out")
-    else:
-        _axE.text(0.5, 0.5,
-                  "Switch to a network with at most\n"
-                  f"{NUMBER_THRESHOLD} nodes to see the sum spelled out\n"
-                  "(the math is identical).",
-                  ha="center", va="center", fontsize=11)
-
-    # Bottom: bar charts of x and y = A x.
     _show_ticks = _n <= 16
     _axX.bar(range(_n), _x, color="#888888", edgecolor="white")
     _axX.set_title("Input  x")
     _axY.bar(range(_n), _y, color=ACCENT, edgecolor="white")
-    _axY.set_title("Output  y = A x  (sum over neighbours)")
+    _axY.set_title("Output  y = A @ x")
     for _ax in (_axX, _axY):
         if _show_ticks:
             _ax.set_xticks(range(_n))
-            _ax.set_xticklabels(_names, rotation=90, fontsize=8)
+            _ax.set_xticklabels(_names, rotation=90, fontsize=9)
         else:
             _ax.set_xticks([])
         _ax.spines["top"].set_visible(False)
         _ax.spines["right"].set_visible(False)
     plt.tight_layout()
 
+    # Figure 2: the multiplication itself — A (row highlighted) @ x = y.
+    if _n <= NUMBER_THRESHOLD:
+        _fs = 12 if _n <= 6 else (10 if _n <= 10 else 7.5)
+        _maxlen = max(len(_nm) for _nm in _names)
+        _left_margin = 0.35 + 0.21 * _maxlen * _fs / 9.0
+        _top_margin = 0.6 + 0.21 * _maxlen * _fs / 9.0
+        _gap = 1.7
+
+        _figW = 11.5
+        _x_total = _left_margin + _n + _gap + 1 + _gap + 1 + 1.8
+        _y_total = _n + 2.6 + _top_margin
+        _figH = min(9.0, max(3.4, _figW * _y_total / _x_total))
+        _fig2, _axM = plt.subplots(figsize=(_figW, _figH))
+        clean_axis(_axM)
+        _axM.set_aspect("equal")
+
+        _xe = draw_block(_axM, A, 0, _names, _fs, row_names=True,
+                         col_names=True, hl_row=_f)
+        _axM.text(_xe + _gap / 2, _n / 2, "@", fontsize=15,
+                  ha="center", va="center", color="#333333")
+        _xv = _xe + _gap
+        draw_block(_axM, _x.reshape(-1, 1), _xv, _names, _fs, hl_col=0)
+        _axM.text(_xv + 1 + _gap / 2, _n / 2, "=", fontsize=15,
+                  ha="center", va="center", color="#333333")
+        _xy = _xv + 1 + _gap
+        draw_block(_axM, _y.reshape(-1, 1), _xy, _names, _fs,
+                   hl_cell=(_f, 0))
+
+        # The products, written under the column they come from.
+        for _m in range(_n):
+            _zero = A[_f, _m] == 0
+            _axM.text(
+                _m + 0.5, _n + 0.85,
+                f"{A[_f, _m]:g}*{_x[_m]:g}",
+                ha="center", va="center", fontsize=_fs * 0.92,
+                color="#bbbbbb" if _zero else "#c0223b",
+            )
+            if _m < _n - 1:
+                _axM.text(_m + 1.0, _n + 0.85, "+", ha="center",
+                          va="center", fontsize=_fs * 0.92,
+                          color="#bbbbbb")
+        _axM.text(_xy + 0.5, _n + 0.85, f"= {_y[_f]:g}",
+                  ha="center", va="center", fontsize=_fs,
+                  fontweight="bold", color="#c0223b")
+        _axM.text(
+            0, _n + 1.9,
+            f"y({focus_node.value})  =  row {focus_node.value} of A  "
+            f"times  x   (red row, blue vector)",
+            ha="left", va="center", fontsize=_fs, color="#333333",
+        )
+        _axM.set_xlim(-_left_margin, _xy + 1.9)
+        _axM.set_ylim(_n + 2.6, -_top_margin)
+        _body = mo.vstack([_fig1, _fig2])
+    else:
+        _body = mo.vstack([_fig1, mo.md(
+            f"_Switch to a network with at most {NUMBER_THRESHOLD} nodes "
+            "to see the multiplication spelled out — the math is "
+            "identical._"
+        )])
+
     if x_kind.value == "All ones (counts neighbours = degree)":
         _note = (
-            "With $x$ = all ones every neighbour contributes exactly 1, so "
-            "$y$ = number of neighbours = **degree**. One multiplication "
-            "computed the degree of every node at once."
+            "With $x$ = all ones every neighbour contributes exactly 1, "
+            "so `A @ x` = number of neighbours = **degree**. One "
+            "multiplication computed the degree of every node at once."
         )
     else:
         _nbrs = [_names[_j] for _j in range(_n) if A[_f, _j] > 0]
         _note = (
-            f"Check it on the picture: {focus_node.value}'s neighbours are "
-            f"{', '.join(_nbrs) if _nbrs else 'nobody'}; add their x values "
-            f"and you get {_y[_f]:g}. The matrix did this for every node "
-            "simultaneously — that is all matrix multiplication is."
+            f"Check it on the picture: {focus_node.value}'s neighbours "
+            f"are {', '.join(_nbrs) if _nbrs else 'nobody'}; add their x "
+            f"values and you get {_y[_f]:g}. The matrix did this for "
+            "every node simultaneously — that is all matrix "
+            "multiplication is."
         )
-    mo.vstack([_fig, mo.md(_note)])
+    mo.vstack([_body, mo.md(_note)])
     return
 
 
@@ -690,24 +764,20 @@ def section3_header(mo):
     ---
     ## 3. Average of friends, and the friendship paradox
 
-    Divide the sum by the number of neighbours (the degree) and you get
-    an **average over friends**:
+    Divide the total by the number of neighbours (the degree) and you
+    get an **average over friends**: `(A @ x) / k`, elementwise.
 
-    $$
-    \bar y_i = \frac{(Ax)_i}{k_i}.
-    $$
-
-    Now feed the machine its own degrees: take $x = k$. Then $\bar y_i$
-    is "the average degree of $i$'s friends". Comparing it with $k_i$
-    gives a famous surprise — **on average, your friends have more
-    friends than you**. Popular people show up in many friend lists, so
-    they drag every list's average up.
+    Now feed the machine its own degrees: take $x = k$. Then each entry
+    is "the average degree of my friends". Comparing it with your own
+    degree gives a famous surprise — **on average, your friends have
+    more friends than you**. Popular people show up in many friend
+    lists, so they drag every list's average up.
     """)
     return
 
 
 @app.cell
-def s3_plot(A, ACCENT, g, mo, np, plt):
+def s3_plot(A, ACCENT, draw_graph, g, layout_coords, mo, np, plt):
     _n = g.vcount()
     _names = list(g.vs["name"])
     _deg = A.sum(axis=1)
@@ -718,6 +788,21 @@ def s3_plot(A, ACCENT, g, mo, np, plt):
     _valid = ~np.isnan(_avg_nbr)
     _mean_self = float(_deg[_valid].mean()) if _valid.any() else 0.0
     _mean_nbr = float(np.nanmean(_avg_nbr)) if _valid.any() else 0.0
+
+    # The network, with each node labelled by its degree.
+    _figG, _axG = plt.subplots(figsize=(6.0, 5.2))
+    if _deg.max() > 0:
+        _sizes = list(20 + 22 * (_deg / _deg.max()))
+    else:
+        _sizes = None
+    if _n <= 16:
+        _labels = [f"{_names[_i]}\nk={int(_deg[_i])}" for _i in range(_n)]
+    else:
+        _labels = [""] * _n
+    draw_graph(_axG, g, layout_coords, vertex_color=ACCENT,
+               vertex_size=_sizes, labels=_labels, label_size=11)
+    _axG.set_title("Node size = degree")
+    plt.tight_layout()
 
     if _n <= 12:
         # Numbers-first: a table you can check by hand.
@@ -733,13 +818,15 @@ def s3_plot(A, ACCENT, g, mo, np, plt):
             _rows.append(
                 f"| {_names[_i]} | {int(_deg[_i])}{_winner} | {_flist} | {_avg} |"
             )
-        _table = mo.md("\n".join(_rows))
-        _body = _table
+        _body = mo.hstack(
+            [_figG, mo.md("\n".join(_rows))],
+            widths=[1.0, 1.4], gap=1.0, align="center",
+        )
     else:
-        # Bigger networks: the two distributions.
+        # Bigger networks: the two distributions next to the graph.
         _kmax = int(max(_deg.max(), np.nanmax(_avg_nbr)))
         _bins = np.arange(0, _kmax + 2) - 0.5
-        _fig, (_ax1, _ax2) = plt.subplots(1, 2, figsize=(11, 3.6))
+        _figH, (_ax1, _ax2) = plt.subplots(1, 2, figsize=(7.5, 3.6))
         _ax1.hist(_deg, bins=_bins, color="#888888", edgecolor="white")
         _ax1.axvline(_mean_self, color="#c0223b", linestyle="--",
                      linewidth=1.2, label=f"mean = {_mean_self:.2f}")
@@ -750,14 +837,16 @@ def s3_plot(A, ACCENT, g, mo, np, plt):
                   edgecolor="white")
         _ax2.axvline(_mean_nbr, color="#c0223b", linestyle="--",
                      linewidth=1.2, label=f"mean = {_mean_nbr:.2f}")
-        _ax2.set_title("Your friends' average degree  (A k) / k")
+        _ax2.set_title("Friends' average degree")
         _ax2.set_xlabel("avg. neighbour degree")
         _ax2.legend(frameon=False, fontsize=9)
         for _ax in (_ax1, _ax2):
             _ax.spines["top"].set_visible(False)
             _ax.spines["right"].set_visible(False)
         plt.tight_layout()
-        _body = _fig
+        _body = mo.hstack(
+            [_figG, _figH], widths=[0.9, 1.4], gap=1.0, align="center",
+        )
 
     _diff = _mean_nbr - _mean_self
     if _diff > 1e-9:
@@ -779,7 +868,7 @@ def s3_plot(A, ACCENT, g, mo, np, plt):
 
 
 # -----------------------------------------------------------------------------
-# Section 4 — A^k: walks drawn on the network
+# Section 4 — A @ A: a row times a column
 # -----------------------------------------------------------------------------
 
 
@@ -787,29 +876,156 @@ def s3_plot(A, ACCENT, g, mo, np, plt):
 def section4_header(mo):
     mo.md(r"""
     ---
-    ## 4. $A^k$ — see the walks, see the sum
+    ## 4. `A @ A` — a row times a column
 
-    Here is the central fact of this app:
+    What happens when the thing you multiply $A$ by is $A$ itself? Cell
+    $(i, j)$ of `A @ A` is **row $i$ of the first matrix times column
+    $j$ of the second**: pair up the entries, multiply each pair, add
+    everything up.
 
-    $$
-    (A^2)_{ij} = \sum_{m} A_{im}\, A_{mj}
-    $$
-
-    Each term is a yes/no question: *is there an edge $i \to m$, AND an
-    edge $m \to j$?* When both are 1 the product is 1 — **that term IS a
-    walk of length 2 from $i$ to $j$ through $m$**. The sum just counts
-    them. Powers continue the story: $(A^k)_{ij}$ counts walks of length
-    $k$ (walks may revisit nodes).
-
-    Pick a start, a target, and a length. Every walk is drawn on the
-    network, and every nonzero term in the sum has the same colour as
-    the walk it counts.
+    Each pair asks: *does $i$ know $m$* (row), *and does $m$ know $j$*
+    (column)? Only when both are 1 does the pair contribute — and that
+    pair **is** a stepping stone: a walk $i \to m \to j$ of length 2.
+    Cell $(i, j)$ of `A @ A` therefore counts the walks of length 2 —
+    the friends that $i$ and $j$ have in common.
     """)
     return
 
 
 @app.cell
 def s4_widgets(g, mo):
+    _names = list(g.vs["name"])
+    aa_i = mo.ui.dropdown(
+        options=_names, value=_names[0], label="Row i (first matrix)",
+    )
+    aa_j = mo.ui.dropdown(
+        options=_names, value=_names[min(2, len(_names) - 1)],
+        label="Column j (second matrix)",
+    )
+    mo.hstack([aa_i, aa_j], gap=1.0, widths="equal")
+    return aa_i, aa_j
+
+
+@app.cell
+def s4_plot(A, NUMBER_THRESHOLD, aa_i, aa_j, clean_axis, draw_block, g, mo, np, plt):
+    _n = g.vcount()
+    _names = list(g.vs["name"])
+    _i = _names.index(aa_i.value)
+    _j = _names.index(aa_j.value)
+    _A2 = A @ A
+    _val = _A2[_i, _j]
+
+    if _n <= NUMBER_THRESHOLD:
+        _fs = 11 if _n <= 6 else (9 if _n <= 10 else 6.5)
+        _maxlen = max(len(_nm) for _nm in _names)
+        _left_margin = 0.35 + 0.21 * _maxlen * _fs / 9.0
+        _top_margin = 0.6 + 0.21 * _maxlen * _fs / 9.0
+        _gap = 1.7
+
+        _figW = 12.0
+        _x_total = _left_margin + 3 * _n + 2 * _gap + 0.8
+        _y_total = _n + 2.6 + _top_margin
+        _figH = min(9.5, max(3.2, _figW * _y_total / _x_total))
+        _fig, _ax = plt.subplots(figsize=(_figW, _figH))
+        clean_axis(_ax)
+        _ax.set_aspect("equal")
+
+        _xe = draw_block(_ax, A, 0, _names, _fs, row_names=True,
+                         col_names=True, hl_row=_i)
+        _ax.text(_xe + _gap / 2, _n / 2, "@", fontsize=15,
+                 ha="center", va="center", color="#333333")
+        _x2 = _xe + _gap
+        _xe2 = draw_block(_ax, A, _x2, _names, _fs, col_names=True,
+                          hl_col=_j)
+        _ax.text(_xe2 + _gap / 2, _n / 2, "=", fontsize=15,
+                 ha="center", va="center", color="#333333")
+        _x3 = _xe2 + _gap
+        draw_block(_ax, _A2, _x3, _names, _fs, col_names=True,
+                   hl_cell=(_i, _j))
+
+        # The products, under the columns of the FIRST matrix: entry m
+        # of the red row times entry m of the blue column.
+        for _m in range(_n):
+            _prod = A[_i, _m] * A[_m, _j]
+            _ax.text(
+                _m + 0.5, _n + 0.85,
+                f"{A[_i, _m]:g}*{A[_m, _j]:g}",
+                ha="center", va="center", fontsize=_fs * 0.92,
+                color="#222222" if _prod > 0 else "#bbbbbb",
+            )
+            if _m < _n - 1:
+                _ax.text(_m + 1.0, _n + 0.85, "+", ha="center",
+                         va="center", fontsize=_fs * 0.92,
+                         color="#bbbbbb")
+        _ax.text(_xe + 0.6, _n + 0.85, f"= {_val:g}",
+                 ha="left", va="center", fontsize=_fs,
+                 fontweight="bold", color="#0e8c6d")
+        _ax.text(
+            0, _n + 1.9,
+            f"(A @ A)({aa_i.value}, {aa_j.value})  =  "
+            f"red row times blue column  =  {_val:g}",
+            ha="left", va="center", fontsize=_fs, color="#333333",
+        )
+        _ax.set_xlim(-_left_margin, _x3 + _n + 0.8)
+        _ax.set_ylim(_n + 2.6, -_top_margin)
+        _body = _fig
+    else:
+        _body = mo.md(
+            f"(A @ A)({aa_i.value}, {aa_j.value}) = **{_val:g}**. "
+            f"_Switch to a network with at most {NUMBER_THRESHOLD} nodes "
+            "to see the two matrices spelled out._"
+        )
+
+    _common = [
+        _names[_m] for _m in range(_n) if A[_i, _m] * A[_m, _j] > 0
+    ]
+    if _i == _j:
+        _interp = (
+            f"You picked the diagonal: every neighbour of "
+            f"{aa_i.value} is a walk out and straight back, so the cell "
+            f"equals the **degree** ({_val:g})."
+        )
+    elif _common:
+        _interp = (
+            f"The nonzero pairs are the stepping stones: "
+            f"{', '.join('**' + _c + '**' for _c in _common)}. "
+            f"{aa_i.value} and {aa_j.value} share {_val:g} "
+            f"common neighbour{'s' if _val != 1 else ''}."
+        )
+    else:
+        _interp = (
+            f"No pair is 1 * 1, so {aa_i.value} and {aa_j.value} share "
+            "no neighbours: no walk of length 2 connects them."
+        )
+    mo.vstack([_body, mo.md(_interp)])
+    return
+
+
+# -----------------------------------------------------------------------------
+# Section 5 — Powers of A: walks, reach, triangles
+# -----------------------------------------------------------------------------
+
+
+@app.cell
+def section5_header(mo):
+    mo.md(r"""
+    ---
+    ## 5. Keep multiplying: `A @ A @ A` and beyond
+
+    Multiplying once more repeats the trick: cell $(i, j)$ of $A^k$
+    (that is, `A @ A @ ... @ A`, $k$ times) counts the **walks of
+    length $k$** from $i$ to $j$ — walks may revisit nodes. One number
+    in a matrix, and you can draw every walk it counts on the network.
+
+    Three things fall out of this for free: the walks themselves, the
+    set of nodes you can reach in at most $k$ steps, and — on the
+    diagonal of $A^3$ — the triangles.
+    """)
+    return
+
+
+@app.cell
+def s5_widgets(g, mo):
     _names = list(g.vs["name"])
     walk_i = mo.ui.dropdown(
         options=_names, value=_names[0], label="From i",
@@ -818,7 +1034,7 @@ def s4_widgets(g, mo):
         options=_names, value=_names[min(2, len(_names) - 1)], label="To j",
     )
     power_k = mo.ui.slider(
-        start=1, stop=4, step=1, value=2,
+        start=1, stop=5, step=1, value=2,
         label="Walk length k", show_value=True, full_width=True,
     )
     mo.hstack([walk_i, walk_j, power_k], gap=1.0, widths="equal")
@@ -826,18 +1042,18 @@ def s4_widgets(g, mo):
 
 
 @app.cell
-def s4_compute(A, np, power_k):
+def s5_compute(A, np, power_k):
     _k = int(power_k.value)
     _M = np.eye(A.shape[0])
     for _ in range(_k - 1):
         _M = _M @ A
-    Akm1 = _M          # A^(k-1), used to spell out the sum
+    Akm1 = _M          # A^(k-1), used to spell out the multiplication
     Ak = _M @ A        # A^k
     return Ak, Akm1
 
 
 @app.cell
-def s4_plot(
+def s5_walks_plot(
     A, ACCENT, Ak, Akm1, NUMBER_THRESHOLD, PALETTE, clean_axis, draw_graph,
     enumerate_walks, g, layout_coords, matrix_with_numbers, mo, np,
     plt, power_k, walk_i, walk_j,
@@ -858,7 +1074,7 @@ def s4_plot(
     _drawn = _walks[:_MAX_DRAWN]
 
     # Walk colour = colour of its last intermediate node (the m in the
-    # sum), so drawn walks and equation terms match by colour.
+    # multiplication), so drawn walks and terms match by colour.
     def _walk_color(w):
         if len(w) < 3:
             return ACCENT
@@ -902,7 +1118,7 @@ def s4_plot(
         f"{walk_i.value} (blue ring) to {walk_j.value} (red ring){_extra}"
     )
 
-    # Right: the sum, one line per intermediate node m, colour-matched.
+    # Right: the multiplication, one line per stepping stone m.
     clean_axis(_axE)
     if _k == 1:
         _v = int(round(A[_i, _j]))
@@ -924,7 +1140,7 @@ def s4_plot(
         _lhs = "A" if _k == 2 else f"A^{_k - 1}"
         _lines = [(
             f"(A^{_k})({walk_i.value},{walk_j.value}) = "
-            f"sum over m of {_lhs}({walk_i.value},m) * A(m,{walk_j.value})",
+            f"row of {_lhs} times column of A:",
             "#333333", True,
         )]
         _skipped = 0
@@ -955,7 +1171,7 @@ def s4_plot(
                 fontweight="bold" if _bold else "normal",
                 transform=_axE.transAxes,
             )
-        _axE.set_title("The sum — one line per stepping stone m")
+        _axE.set_title("One line per stepping stone m")
     else:
         _axE.text(0.5, 0.5,
                   f"(A^{_k})({walk_i.value}, {walk_j.value}) = {_count}\n\n"
@@ -981,68 +1197,33 @@ def s4_plot(
         if _count > 0 else
         f"No walk of length {_k} connects {walk_i.value} to {walk_j.value}."
     )
-    if _k == 2:
-        _diag_md = (
-            " The diagonal of $A^2$ counts walks that go out and come "
-            "straight back — one per neighbour, so $(A^2)_{ii}$ = degree."
-        )
-    elif _k == 3:
-        _diag_md = (
-            " The diagonal of $A^3$ counts round trips of length 3 — "
-            "triangles. That is the next section."
-        )
-    else:
-        _diag_md = ""
-    mo.vstack([_fig, _figM, mo.md(_list_md + _diag_md)])
+    mo.vstack([_fig, _figM, mo.md(_list_md)])
     return
 
 
-# -----------------------------------------------------------------------------
-# Section 5 — Reachable in at most k steps
-# -----------------------------------------------------------------------------
-
-
 @app.cell
-def section5_header(mo):
+def s5_reach_header(mo):
     mo.md(r"""
-    ---
-    ## 5. Who can you reach in $\leq k$ steps?
+    ### Reachable in at most $k$ steps
 
-    Add the powers up: a cell of $A + A^2 + \dots + A^k$ is positive
-    exactly when SOME walk of length at most $k$ connects the pair. Turn
-    that into yes/no and you have answered a question no single entry of
-    $A$ could: **what is within $k$ steps of me?**
-
-    This is how "six degrees of separation", influence ranges, and
-    epidemic horizons are computed — same multiplication, summed up.
+    Add the powers up: a cell of `A + A@A + A@A@A + ...` is positive
+    exactly when SOME walk of length at most $k$ connects the pair.
+    The node and the walk length $k$ above drive this picture too —
+    this is how "six degrees of separation" and epidemic horizons are
+    computed.
     """)
     return
 
 
 @app.cell
-def s5_widgets(g, mo):
-    spread_start = mo.ui.dropdown(
-        options=list(g.vs["name"]),
-        value=g.vs["name"][0],
-        label="Start node",
-    )
-    spread_k = mo.ui.slider(
-        start=1, stop=6, step=1, value=2,
-        label="Maximum steps k", show_value=True, full_width=True,
-    )
-    mo.hstack([spread_start, spread_k], gap=1.0, widths="equal")
-    return spread_k, spread_start
-
-
-@app.cell
-def s5_plot(A, ACCENT, PALETTE, draw_graph, g, layout_coords, mo, np, plt, spread_k, spread_start):
+def s5_reach_plot(A, draw_graph, g, layout_coords, mo, np, plt, power_k, walk_i):
     _n = g.vcount()
     _names = list(g.vs["name"])
-    _s = _names.index(spread_start.value)
-    _kmax = int(spread_k.value)
+    _s = _names.index(walk_i.value)
+    _kmax = int(power_k.value)
 
-    # First step at which each node becomes reachable, via matrix powers:
-    # (A^k)[s, v] > 0 and no smaller power reached it yet.
+    # First step at which each node becomes reachable, via matrix
+    # powers: (A^k)[s, v] > 0 and no smaller power reached it yet.
     _first = np.full(_n, -1, dtype=int)
     _first[_s] = 0
     _Acur = np.eye(_n)
@@ -1052,37 +1233,44 @@ def s5_plot(A, ACCENT, PALETTE, draw_graph, g, layout_coords, mo, np, plt, sprea
         _first[_newly] = _step
     _reached = _first > 0
 
-    _step_colors = [PALETTE[1], PALETTE[2], PALETTE[3], PALETTE[5],
-                    PALETTE[6], PALETTE[7]]
+    # Sequential colours: later steps = lighter.
+    _cmap = plt.get_cmap("viridis")
+    _step_colors = [
+        _cmap(0.15 + 0.7 * (_step - 1) / max(1, _kmax - 1))
+        for _step in range(1, _kmax + 1)
+    ]
+    _START_COLOR = "#c0223b"
+    _UNREACHED = "#e0e0e0"
     _vcols = []
     for _v in range(_n):
         if _v == _s:
-            _vcols.append(ACCENT)
+            _vcols.append(_START_COLOR)
         elif _first[_v] > 0:
-            _vcols.append(_step_colors[(_first[_v] - 1) % len(_step_colors)])
+            _vcols.append(_step_colors[_first[_v] - 1])
         else:
-            _vcols.append("#dddddd")
+            _vcols.append(_UNREACHED)
 
     _fig, _ax = plt.subplots(figsize=(7.5, 6.0))
     draw_graph(_ax, g, layout_coords, vertex_color=_vcols)
     _handles = [plt.Line2D([0], [0], marker="o", color="w",
-                           markerfacecolor=ACCENT, markersize=9,
-                           label="start")]
+                           markerfacecolor=_START_COLOR, markersize=10,
+                           label=f"start: {walk_i.value}")]
     for _step in range(1, _kmax + 1):
         if np.any(_first == _step):
             _handles.append(plt.Line2D(
                 [0], [0], marker="o", color="w",
-                markerfacecolor=_step_colors[(_step - 1) % len(_step_colors)],
-                markersize=9, label=f"first reached at step {_step}",
+                markerfacecolor=_step_colors[_step - 1],
+                markersize=10, label=f"reached at step {_step}",
             ))
     if np.any(_first < 0):
         _handles.append(plt.Line2D([0], [0], marker="o", color="w",
-                                   markerfacecolor="#dddddd", markersize=9,
+                                   markerfacecolor=_UNREACHED,
+                                   markersize=10,
                                    label="not reachable"))
     _ax.legend(handles=_handles, loc="upper right", frameon=True,
-               fontsize=8)
+               fontsize=9)
     _ax.set_title(
-        f"From {spread_start.value}: {int(_reached.sum())} of {_n - 1} "
+        f"From {walk_i.value}: {int(_reached.sum())} of {_n - 1} "
         f"other nodes within {_kmax} step{'s' if _kmax != 1 else ''}"
     )
     plt.tight_layout()
@@ -1092,44 +1280,33 @@ def s5_plot(A, ACCENT, PALETTE, draw_graph, g, layout_coords, mo, np, plt, sprea
         "Newly reached per step: "
         + ", ".join(f"step {_t + 1}: {_c}" for _t, _c in enumerate(_per_step))
         + ". In matrix terms: count the positive entries in row "
-        f"**{spread_start.value}** of $A + A^2 + \\dots + A^k$ "
+        f"**{walk_i.value}** of `A + A@A + ... ` up to $A^k$ "
         "(diagonal ignored)."
     )
     mo.vstack([_fig, _msg])
     return
 
 
-# -----------------------------------------------------------------------------
-# Section 6 — Triangles live on the diagonal of A^3
-# -----------------------------------------------------------------------------
-
-
 @app.cell
-def section6_header(mo):
+def s5_tri_header(mo):
     mo.md(r"""
-    ---
-    ## 6. Triangles live on the diagonal of $A^3$
+    ### Triangles: the diagonal of `A @ A @ A`
 
-    Set the target equal to the start: $(A^3)_{ii}$ counts round trips of
-    length 3 — leave home, visit two friends, come back. Each such trip
-    traces a **triangle**. On an undirected network every triangle through
-    $i$ is walked twice (clockwise and counter-clockwise), so
-
-    $$
-    \text{triangles through } i = \tfrac{1}{2}(A^3)_{ii},
-    \qquad
-    \text{total} = \tfrac{1}{6}\,\text{tr}(A^3)
-    $$
-
-    (each triangle has 3 corners, hence the extra factor 3). Triangles
-    are the atoms of **clustering** — "are my friends friends with each
-    other?" — one of the most-used quantities in all of network science.
+    Set the target equal to the start: cell $(i, i)$ of $A^3$ counts
+    round trips of length 3 — leave home, visit two friends, come back.
+    Each such trip traces a **triangle**. On an undirected network every
+    triangle through $i$ is walked twice (clockwise and
+    counter-clockwise), so triangles through $i$ = $(A^3)_{ii} / 2$, and
+    the total is $\mathrm{tr}(A^3)/6$ (each triangle has 3 corners).
+    Triangles are the atoms of **clustering** — "are my friends friends
+    with each other?" — one of the most-used quantities in network
+    science.
     """)
     return
 
 
 @app.cell
-def s6_plot(A, ACCENT, EDGE_COLOR, NUMBER_THRESHOLD, draw_graph, g, is_directed, layout_coords, mo, np, plt):
+def s5_tri_plot(A, ACCENT, EDGE_COLOR, NUMBER_THRESHOLD, draw_graph, g, is_directed, layout_coords, mo, np, plt):
     _n = g.vcount()
     _names = list(g.vs["name"])
     _A3 = A @ A @ A
@@ -1156,15 +1333,15 @@ def s6_plot(A, ACCENT, EDGE_COLOR, NUMBER_THRESHOLD, draw_graph, g, is_directed,
             _u, _v = _e.source, _e.target
             if _A2[_u, _v] > 0:  # the edge closes at least one triangle
                 _ecols.append("#e07b00")
-                _ewids.append(2.5)
+                _ewids.append(3.0)
             else:
                 _ecols.append(EDGE_COLOR)
-                _ewids.append(1.0)
+                _ewids.append(1.2)
     else:
         _ecols = None
-        _ewids = 1.0
+        _ewids = 1.2
     if _tri_node.max() > 0:
-        _sizes = list(14 + 26 * (_tri_node / _tri_node.max()))
+        _sizes = list(16 + 26 * (_tri_node / _tri_node.max()))
     else:
         _sizes = None
     if _n <= NUMBER_THRESHOLD:
@@ -1174,7 +1351,7 @@ def s6_plot(A, ACCENT, EDGE_COLOR, NUMBER_THRESHOLD, draw_graph, g, is_directed,
     else:
         _labels = [""] * _n
     draw_graph(_axL, g, layout_coords, vertex_color=ACCENT,
-               vertex_size=_sizes, labels=_labels, label_size=8,
+               vertex_size=_sizes, labels=_labels, label_size=10,
                edge_color=_ecols, edge_width=_ewids)
     _axL.set_title(
         "Triangles through each node"
@@ -1188,10 +1365,10 @@ def s6_plot(A, ACCENT, EDGE_COLOR, NUMBER_THRESHOLD, draw_graph, g, is_directed,
     if _n <= 30:
         _axR.set_xticks(range(_n))
         _axR.set_xticklabels([_names[_o] for _o in _order],
-                             rotation=90, fontsize=8)
+                             rotation=90, fontsize=9)
     else:
         _axR.set_xticks([])
-    _axR.set_title(f"diag(A^3) scaled  ({_formula})")
+    _axR.set_title(f"Triangles per node  ({_formula})")
     _axR.spines["top"].set_visible(False)
     _axR.spines["right"].set_visible(False)
     plt.tight_layout()
@@ -1209,34 +1386,29 @@ def s6_plot(A, ACCENT, EDGE_COLOR, NUMBER_THRESHOLD, draw_graph, g, is_directed,
 
 
 # -----------------------------------------------------------------------------
-# Section 7 — Multiply again and again
+# Section 6 — Multiply again and again
 # -----------------------------------------------------------------------------
 
 
 @app.cell
-def section7_header(mo):
+def section6_header(mo):
     mo.md(r"""
     ---
-    ## 7. Multiply again and again — a ranking emerges
+    ## 6. Multiply again and again — a ranking emerges
 
     One multiplication asked about neighbours; two asked about walks of
-    length 2. What if you never stop? Iterate
-
-    $$
-    x \leftarrow \frac{Ax}{\lVert Ax \rVert}
-    $$
-
-    starting from all-equal values. Each round, nodes with
-    well-connected neighbours pull ahead — having many walks of every
-    length flowing through you is what "being important" turns out to
-    mean. After a few rounds the bars stop moving: the network has
-    settled on a verdict.
+    length 2. What if you never stop? Iterate `x = A @ x`, rescaling
+    each round so the numbers stay finite. Nodes with well-connected
+    neighbours pull ahead — having many walks of every length flowing
+    through you is what "being important" turns out to mean. After a
+    few rounds the bars stop moving: the network has settled on a
+    verdict.
     """)
     return
 
 
 @app.cell
-def s7_widgets(mo):
+def s6_widgets(mo):
     iter_k = mo.ui.slider(
         start=0, stop=30, step=1, value=1,
         label="Iterations", show_value=True, full_width=True,
@@ -1246,7 +1418,7 @@ def s7_widgets(mo):
 
 
 @app.cell
-def s7_plot(A, ACCENT, g, iter_k, mo, np, plt):
+def s6_plot(A, ACCENT, g, iter_k, mo, np, plt):
     _n = g.vcount()
     _names = list(g.vs["name"])
     _k = int(iter_k.value)
@@ -1277,7 +1449,7 @@ def s7_plot(A, ACCENT, g, iter_k, mo, np, plt):
     if _n <= 30:
         _ax.set_xticks(range(_n))
         _ax.set_xticklabels([_names[_o] for _o in _order],
-                            rotation=90, fontsize=8)
+                            rotation=90, fontsize=9)
     else:
         _ax.set_xticks([])
     _ax.legend(frameon=False, fontsize=9)
@@ -1292,60 +1464,42 @@ def s7_plot(A, ACCENT, g, iter_k, mo, np, plt):
         f"iteration{'s' if _k != 1 else ''}: **{_gap:.4f}** — slide right "
         "and watch it go to zero.\n\n"
         "This limit is **eigenvector centrality**. Do the same iteration "
-        "on a row-normalised $A$ with a little random jumping and you get "
-        "**PageRank** — the multiplication that ranked the web. And this "
-        "is not the end of the story: the last section maps where the "
-        "same multiplication returns during the rest of the week."
+        "on a row-normalised $A$ with a little random jumping and you "
+        "get **PageRank** — the multiplication that ranked the web. The "
+        "last section maps where this same multiplication returns during "
+        "the rest of the week."
     )
     mo.vstack([_fig, _msg])
     return
 
 
 # -----------------------------------------------------------------------------
-# Section 8 — The same multiplication, the rest of the week
+# Section 7 — Where you will meet this again
 # -----------------------------------------------------------------------------
 
 
 @app.cell
-def section8_connections(mo):
+def section7_connections(mo):
     mo.md(r"""
     ---
-    ## 8. The same multiplication, the rest of the week
+    ## 7. Where you will meet this again
 
-    Everything in this app was one operation — multiply by $A$, read the
-    paths. That operation is the quiet workhorse of the whole summer
-    school:
+    - **Day 2 — graph models:** is my network surprising? Compare its
+      walk and triangle counts against a random network's.
+    - **Day 3a — community detection:** communities are where random
+      walks stay trapped.
+    - **Day 3b — link prediction:** the simplest score for a missing
+      edge $(i, j)$ is cell $(i, j)$ of `A @ A` — shared friends.
+    - **Day 3b — node embeddings:** nodes that share many walks end up
+      with similar vectors.
+    - **Day 4 — graphical models:** message passing is `A @ x`,
+      repeated.
+    - **Day 5 — social contagion:** outbreaks spread along the
+      reachability rings; the leading eigenvalue decides whether they
+      take off.
 
-    - **Graph models (Day 2).** Is my network surprising? Compare its
-      common-neighbour and triangle counts — the $(A^2)_{ij}$ and
-      $\mathrm{diag}(A^3)$ of Sections 4 and 6 — against what a random
-      graph with the same degrees would give. "More triangles than
-      chance" is a statement about path counts.
-    - **Community detection (Day 3a).** Random walkers get trapped
-      inside densely connected groups: communities are the places the
-      walks of Sections 4 and 5 keep returning to. Spectral methods read
-      the groups directly off eigenvectors of (matrices built from) $A$
-      — found by exactly the repeated multiplication of Section 7.
-    - **Link prediction (Day 3b).** The simplest score for a missing
-      edge $(i, j)$ is the number of common neighbours — literally
-      $(A^2)_{ij}$ from Section 4. Fancier scores (Adamic-Adar, Katz)
-      are the same idea with longer walks weighted less.
-    - **Node embeddings (Day 3b).** Embeddings place two nodes close
-      together when random walks visit them together. The co-occurrence
-      counts they are trained on are entries of powers of the walk
-      matrix — Section 4, dressed up for machine learning.
-    - **Graphical models (Day 4).** The matrix changes meaning — an
-      edge now says "conditionally dependent" — but inference is message
-      passing: every node repeatedly combines its neighbours' values,
-      which is the $Ax$ of Section 2 in disguise.
-    - **Social contagion (Day 5).** Spreading follows the reachability
-      rings of Section 5, and whether an outbreak takes off or dies is
-      decided by the leading eigenvalue of $A$ — the number that
-      Section 7's iteration grows along.
-
-    When a method this week looks mysterious, ask the question this app
-    has been asking all along: *which walks is it counting, and how are
-    they weighted?* That one question unlocks most of network science.
+    One question unlocks all of it: *which walks are being counted, and
+    how much does each one weigh?*
     """)
     return
 
@@ -1354,7 +1508,8 @@ def section8_connections(mo):
 def footer(mo):
     mo.md(r"""
     ---
-    Network Science Summer School 2026 · Utrecht University ·
+    Javier Garcia-Bernardo · ODISSEI SoDa & Methodology and Statistics,
+    Utrecht University · Network Science Summer School 2026 ·
     standalone marimo companion app for Day 1b.
     """)
     return

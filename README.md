@@ -16,28 +16,28 @@ Every push to `main` rebuilds the WASM bundle via GitHub Actions
 
 ## What's inside
 
-Eight short sections, all driven by the same active network. The default
+Seven short sections, all driven by the same active network. The default
 is a five-person toy network, small enough that every number in every
-equation is visible and checkable by hand:
+multiplication is visible and checkable by hand:
 
 1. **The network and its matrix** — pick a node, see its row highlighted
    in the numeric matrix and its edges highlighted in the drawing.
-2. **$Ax$ — ask every node about its neighbours** — the sum for one node
-   spelled out term by term, with the zero terms greyed out.
-3. **Average of friends, and the friendship paradox** — a table you can
-   check by hand on the toy network; histograms on bigger ones.
-4. **$A^k$ — see the walks, see the sum** — every walk of length $k$
-   from $i$ to $j$ drawn on the network, colour-matched to the nonzero
-   terms of the expanded dot product.
-5. **Reachable in at most $k$ steps** — nodes coloured by the step at
-   which $A + A^2 + \dots + A^k$ first reaches them.
-6. **Triangles live on the diagonal of $A^3$** — counts written on the
-   nodes, triangle edges highlighted.
-7. **Multiply again and again** — power iteration settles on a ranking
+2. **`A @ x` — ask every node about its neighbours** — the two matrices
+   drawn side by side, with the selected row coloured and the products
+   written under the columns they come from.
+3. **Average of friends, and the friendship paradox** — the network plus
+   a table you can check by hand; histograms on bigger networks.
+4. **`A @ A` — a row times a column** — both adjacency matrices side by
+   side, row of the first and column of the second coloured, the result
+   cell boxed: common neighbours, computed in front of you.
+5. **Keep multiplying** — walks of length k drawn on the network and
+   colour-matched to the terms that count them; reachability rings in
+   sequential colours; triangles on the diagonal of `A @ A @ A`.
+6. **Multiply again and again** — power iteration settles on a ranking
    (a teaser for eigenvector centrality and PageRank).
-8. **The same multiplication, the rest of the week** — how path
-   counting returns in graph models, community detection, link
-   prediction, node embeddings, graphical models, and social contagion.
+7. **Where you will meet this again** — one line per day of the summer
+   school: graph models, community detection, link prediction,
+   embeddings, graphical models, social contagion.
 
 Default network: "Five friends" (5 nodes). Also bundled: a small
 directed toy, the Krackhardt Kite, Florentine families (Padgett 1994),
