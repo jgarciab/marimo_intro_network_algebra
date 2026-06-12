@@ -459,8 +459,7 @@ def title(mo):
     mo.md(r"""
     # Matrix multiplication is counting paths
 
-    Javier Garcia-Bernardo — ODISSEI Social Data Science team (SoDa) &
-    Department of Methodology and Statistics, Utrecht University
+    *Javier Garcia-Bernardo — ODISSEI Social Data Science team (SoDa) & Department of Methodology and Statistics, Utrecht University*
 
     A network can be written as a matrix $A$: one row and one column per
     node, with $A_{ij} = 1$ when $i$ and $j$ are connected. That is just
@@ -1508,8 +1507,8 @@ def section7_connections(mo):
 def footer(mo):
     mo.md(r"""
     ---
-    Javier Garcia-Bernardo · ODISSEI SoDa & Methodology and Statistics,
-    Utrecht University · Network Science Summer School 2026 ·
+    Javier Garcia-Bernardo — SoDa & Utrecht University ·
+    Network Science Summer School 2026 ·
     standalone marimo companion app for Day 1b.
     """)
     return
