@@ -77,6 +77,7 @@ def network_catalogue(ig):
         )
         g_.vs["name"] = ["Alice", "Bob", "Carol", "David", "Emma"]
         g_.vs["children"] = [2, 0, 3, 1, 4]
+        g_.vs["income"] = [56000, 54000, 78000, 57000, 41000]
         return g_
 
     # A small directed toy so the asymmetric-matrix story is visible.
@@ -88,6 +89,7 @@ def network_catalogue(ig):
             directed=True,
         )
         g_.vs["name"] = ["A", "B", "C", "D", "E", "F"]
+        g_.vs["income"] = [62000, 58000, 57000, 76000, 69000, 52000]
         return g_
 
     def _kite():
@@ -280,13 +282,25 @@ def shared_A_and_layout(g, np):
     # floats — cheap to recompute whenever the network changes.
     A = np.array(g.get_adjacency().data, dtype=float)
 
-    # One layout per active network, reused by every section so nodes
-    # never jump when a slider moves.
-    try:
-        _layout = g.layout_kamada_kawai()
-    except Exception:
-        _layout = g.layout_fruchterman_reingold(niter=500, seed=1)
-    layout_coords = [tuple(row) for row in _layout.coords]
+    _names = list(g.vs["name"])
+    if _names == ["Alice", "Bob", "Carol", "David", "Emma"]:
+        layout_coords = [
+            (-0.85, 0.55), (0.85, 0.55), (0.0, 1.35),
+            (0.0, -0.35), (0.0, -1.25),
+        ]
+    elif _names == ["A", "B", "C", "D", "E", "F"] and g.is_directed():
+        layout_coords = [
+            (0.95, 0.8), (-0.55, 0.15), (0.15, 1.3),
+            (-1.1, -0.45), (-0.35, -1.15), (0.95, -0.95),
+        ]
+    else:
+        # One layout per active network, reused by every section so nodes
+        # never jump when a slider moves.
+        try:
+            _layout = g.layout_kamada_kawai()
+        except Exception:
+            _layout = g.layout_fruchterman_reingold(niter=500, seed=1)
+        layout_coords = [tuple(row) for row in _layout.coords]
     return A, layout_coords
 
 
@@ -296,7 +310,45 @@ def shared_A_and_layout(g, np):
 
 
 @app.cell
-def plot_helpers(EDGE_COLOR, NUMBER_THRESHOLD, ig, np, plt):
+def plot_helpers(EDGE_COLOR, NUMBER_THRESHOLD, np, plt):
+    import matplotlib.colors as _mcolors
+    import matplotlib.patches as _mpatches
+
+    def lighten_color(color, amount=0.65):
+        """Blend a colour toward white while keeping its hue recognizable."""
+        rgb = np.array(_mcolors.to_rgb(color))
+        return tuple(rgb + (1.0 - rgb) * amount)
+
+    def _is_single_color(value):
+        try:
+            _len = len(value)
+        except TypeError:
+            return False
+        return (
+            isinstance(value, (list, tuple, np.ndarray))
+            and _len in (3, 4)
+            and all(
+                isinstance(x, (int, float, np.integer, np.floating))
+                for x in value
+            )
+        )
+
+    def _repeat_or_list(value, length):
+        if isinstance(value, str) or _is_single_color(value):
+            return [value] * length
+        if isinstance(value, (list, tuple, np.ndarray)):
+            values = list(value)
+            if len(values) == length:
+                return values
+        return [value] * length
+
+    def soften_vertex_colors(colors, amount=0.54):
+        if isinstance(colors, str) or _is_single_color(colors):
+            return lighten_color(colors, amount=amount)
+        if isinstance(colors, (list, tuple, np.ndarray)):
+            return [lighten_color(c, amount=amount) for c in colors]
+        return colors
+
     def clean_axis(ax):
         ax.set_facecolor("white")
         ax.grid(False)
@@ -311,26 +363,77 @@ def plot_helpers(EDGE_COLOR, NUMBER_THRESHOLD, ig, np, plt):
         clean_axis(ax)
         n_ = g_.vcount()
         if vertex_size is None:
-            vertex_size = 30 if n_ <= 16 else (18 if n_ <= 34 else 10)
+            vertex_size = 34 if n_ <= 16 else (20 if n_ <= 34 else 11)
+        _sizes = _repeat_or_list(vertex_size, n_)
+        _areas = [float(s) ** 2 for s in _sizes]
+        _radii_pt = [max(3.0, float(s) / 2.0) for s in _sizes]
         if labels is None:
             labels = g_.vs["name"] if n_ <= 30 else [""] * n_
-        ig.plot(
-            g_,
-            target=ax,
-            layout=coords,
-            vertex_color=vertex_color,
-            vertex_size=vertex_size,
-            vertex_frame_width=0,
-            vertex_label=labels,
-            vertex_label_size=label_size,
-            vertex_label_color="#222222",
-            edge_color=edge_color if edge_color is not None else EDGE_COLOR,
-            edge_width=edge_width,
-            edge_arrow_size=0.8 if g_.is_directed() else 0.0,
+        else:
+            labels = _repeat_or_list(labels, n_)
+        _label_size = max(label_size, 12 if n_ <= 16 else label_size)
+
+        _xy = np.array(coords, dtype=float)
+        _xs = _xy[:, 0]
+        _ys = _xy[:, 1]
+        _span = max(
+            float(_xs.max() - _xs.min()),
+            float(_ys.max() - _ys.min()),
+            1e-9,
         )
+        _pad = 0.14 * _span
+        ax.set_xlim(float(_xs.min()) - _pad, float(_xs.max()) + _pad)
+        ax.set_ylim(float(_ys.min()) - _pad, float(_ys.max()) + _pad)
+        ax.set_aspect("equal", adjustable="box")
+
+        _edge_colors = _repeat_or_list(
+            edge_color if edge_color is not None else EDGE_COLOR, g_.ecount()
+        )
+        _edge_widths = _repeat_or_list(edge_width, g_.ecount())
+        _directed = g_.is_directed()
+        _edges = {(e.source, e.target) for e in g_.es}
+
+        for _idx, _e in enumerate(g_.es):
+            _src, _dst = _e.source, _e.target
+            _rad = 0.0
+            if _directed:
+                _rad = 0.13
+                if (_dst, _src) in _edges:
+                    _rad = 0.18 if _src < _dst else -0.18
+            _patch = _mpatches.FancyArrowPatch(
+                tuple(_xy[_src]), tuple(_xy[_dst]),
+                arrowstyle="-|>" if _directed else "-",
+                mutation_scale=10.5,
+                shrinkA=_radii_pt[_src] + 1.5,
+                shrinkB=_radii_pt[_dst] + 2.0,
+                linewidth=float(_edge_widths[_idx]),
+                color=_edge_colors[_idx],
+                connectionstyle=f"arc3,rad={_rad}",
+                zorder=2,
+            )
+            ax.add_patch(_patch)
+
+        _node_colors = soften_vertex_colors(vertex_color)
+        _node_colors = _repeat_or_list(_node_colors, n_)
+        ax.scatter(
+            _xs, _ys, s=_areas, c=_node_colors, edgecolors="#ffffff",
+            linewidths=1.0, zorder=6,
+        )
+        for _x, _y, _label in zip(_xs, _ys, labels):
+            if _label == "":
+                continue
+            ax.text(
+                _x, _y, str(_label), ha="center", va="center",
+                fontsize=_label_size, color="#202020", zorder=9,
+                bbox=dict(
+                    boxstyle="round,pad=0.12", facecolor="white",
+                    edgecolor="none", alpha=0.78,
+                ),
+            )
 
     def matrix_with_numbers(ax, M, names_, highlight_row=None,
-                            highlight_cell=None, cmap="Blues", title=None):
+                            highlight_cell=None, highlight_diag=False,
+                            cmap="Blues", title=None):
         """Heatmap of M; prints the integers in the cells for small n."""
         n_ = M.shape[0]
         vmax = max(1.0, float(M.max()))
@@ -369,13 +472,21 @@ def plot_helpers(EDGE_COLOR, NUMBER_THRESHOLD, ig, np, plt):
                 (hci - 0.5, hri - 0.5), 1, 1,
                 fill=False, edgecolor="#1ed8a3", linewidth=2.5, zorder=6,
             ))
+        if highlight_diag:
+            for d in range(n_):
+                ax.add_patch(plt.Rectangle(
+                    (d - 0.5, d - 0.5), 1, 1,
+                    fill=False, edgecolor="#e07b00", linewidth=2.0,
+                    zorder=6,
+                ))
         if title:
             ax.set_title(title)
 
     def draw_block(ax, M, x0, names_, fs, row_names=False, col_names=False,
                    hl_row=None, hl_col=None, hl_cell=None,
                    hl_row_color="#c0223b", hl_col_color="#0b789d",
-                   hl_cell_color="#1ed8a3"):
+                   hl_cell_color="#1ed8a3", text_colors=None,
+                   text_weights=None):
         """Draw matrix M as a numeric grid starting at x = x0.
 
         Row 0 is at the top (caller must invert the y axis). Returns the
@@ -408,9 +519,22 @@ def plot_helpers(EDGE_COLOR, NUMBER_THRESHOLD, ig, np, plt):
         for r in range(nr):
             for c in range(nc):
                 v = M[r, c]
+                _default_col = "#aaaaaa" if v == 0 else "#222222"
+                if callable(text_colors):
+                    _col = text_colors(r, c, v)
+                elif text_colors is not None:
+                    _col = text_colors.get((r, c), _default_col)
+                else:
+                    _col = _default_col
+                if callable(text_weights):
+                    _weight = text_weights(r, c, v)
+                elif text_weights is not None:
+                    _weight = text_weights.get((r, c), "normal")
+                else:
+                    _weight = "normal"
                 ax.text(x0 + c + 0.5, r + 0.5, f"{v:g}",
                         ha="center", va="center", fontsize=fs,
-                        color="#aaaaaa" if v == 0 else "#222222", zorder=3)
+                        color=_col, fontweight=_weight, zorder=3)
         if row_names:
             for r in range(nr):
                 ax.text(x0 - 0.3, r + 0.5, names_[r], ha="right",
@@ -445,7 +569,7 @@ def plot_helpers(EDGE_COLOR, NUMBER_THRESHOLD, ig, np, plt):
 
     return (
         clean_axis, draw_block, draw_graph, enumerate_walks,
-        matrix_with_numbers,
+        lighten_color, matrix_with_numbers,
     )
 
 
@@ -459,15 +583,16 @@ def title(mo):
     mo.md(r"""
     # Matrix multiplication is counting paths
 
-    *Javier Garcia-Bernardo — ODISSEI Social Data Science team (SoDa) & Department of Methodology and Statistics, Utrecht University*
+    Javier Garcia-Bernardo — ODISSEI Social Data Science team (SoDa) &
+    Department of Methodology and Statistics, Utrecht University
 
     A network can be written as a matrix $A$: one row and one column per
     node, with $A_{ij} = 1$ when $i$ and $j$ are connected. That is just
     storage. The magic starts when you **multiply**:
 
-    - `A @ x` asks every node a question about its **neighbours** (1 step).
-    - `A @ A` counts **walks of length 2** — friends of friends.
-    - The diagonal of `A @ A @ A` counts **triangles**.
+    - $A x$ asks every node a question about its **neighbours** (1 step).
+    - $A^2$ counts **walks of length 2** — friends of friends.
+    - The diagonal of $A^3$ counts **triangles**.
     - Multiplying again and again makes a notion of **importance** emerge.
 
     The same trick — follow the paths, add them up — is behind search
@@ -564,7 +689,7 @@ def s1_plot(A, ACCENT, EDGE_COLOR, draw_graph, g, layout_coords, matrix_with_num
 
 
 # -----------------------------------------------------------------------------
-# Section 2 — A @ x: ask every node a question about its neighbours
+# Section 2 — Ax: ask every node a question about its neighbours
 # -----------------------------------------------------------------------------
 
 
@@ -572,7 +697,7 @@ def s1_plot(A, ACCENT, EDGE_COLOR, draw_graph, g, layout_coords, matrix_with_num
 def section2_header(mo):
     mo.md(r"""
     ---
-    ## 2. `A @ x` — ask every node about its neighbours
+    ## 2. $A x$ — ask every node about its neighbours
 
     Multiply $A$ by a vector $x$ (one value per node):
 
@@ -613,7 +738,11 @@ def s2_widgets(g, mo):
 
 
 @app.cell
-def s2_plot(A, ACCENT, EDGE_COLOR, NUMBER_THRESHOLD, clean_axis, draw_block, draw_graph, focus_node, g, layout_coords, mo, np, plt, x_kind):
+def s2_plot(
+    A, ACCENT, EDGE_COLOR, NUMBER_THRESHOLD, PALETTE, clean_axis,
+    draw_block, draw_graph, focus_node, g, layout_coords, lighten_color,
+    mo, np, plt, x_kind,
+):
     _n = g.vcount()
     _names = list(g.vs["name"])
     _f = _names.index(focus_node.value)
@@ -631,13 +760,8 @@ def s2_plot(A, ACCENT, EDGE_COLOR, NUMBER_THRESHOLD, clean_axis, draw_block, dra
 
     _y = A @ _x
 
-    # Figure 1: graph (x values on the nodes) + bar charts of x and y.
-    _fig1 = plt.figure(figsize=(11.5, 5.2))
-    _gs = _fig1.add_gridspec(2, 2, width_ratios=[1.5, 1.0])
-    _axG = _fig1.add_subplot(_gs[:, 0])
-    _axX = _fig1.add_subplot(_gs[0, 1])
-    _axY = _fig1.add_subplot(_gs[1, 1])
-
+    # Figure 1: the network carrying the x values.
+    _figG, _axG = plt.subplots(figsize=(4.4, 4.8))
     _ecols = []
     _ewids = []
     for _e in g.es:
@@ -655,25 +779,11 @@ def s2_plot(A, ACCENT, EDGE_COLOR, NUMBER_THRESHOLD, clean_axis, draw_block, dra
         _labels = None
     draw_graph(_axG, g, layout_coords, vertex_color=_vcols,
                edge_color=_ecols, edge_width=_ewids, labels=_labels,
-               label_size=11)
-    _axG.set_title(f"Each node carries its x value  ({_xlabel})")
-
-    _show_ticks = _n <= 16
-    _axX.bar(range(_n), _x, color="#888888", edgecolor="white")
-    _axX.set_title("Input  x")
-    _axY.bar(range(_n), _y, color=ACCENT, edgecolor="white")
-    _axY.set_title("Output  y = A @ x")
-    for _ax in (_axX, _axY):
-        if _show_ticks:
-            _ax.set_xticks(range(_n))
-            _ax.set_xticklabels(_names, rotation=90, fontsize=9)
-        else:
-            _ax.set_xticks([])
-        _ax.spines["top"].set_visible(False)
-        _ax.spines["right"].set_visible(False)
+               label_size=12)
+    _axG.set_title(f"Network with x values: {focus_node.value}")
     plt.tight_layout()
 
-    # Figure 2: the multiplication itself — A (row highlighted) @ x = y.
+    # Figure 2: the multiplication itself — A (row highlighted) times x = y.
     if _n <= NUMBER_THRESHOLD:
         _fs = 12 if _n <= 6 else (10 if _n <= 10 else 7.5)
         _maxlen = max(len(_nm) for _nm in _names)
@@ -681,7 +791,7 @@ def s2_plot(A, ACCENT, EDGE_COLOR, NUMBER_THRESHOLD, clean_axis, draw_block, dra
         _top_margin = 0.6 + 0.21 * _maxlen * _fs / 9.0
         _gap = 1.7
 
-        _figW = 11.5
+        _figW = 8.8
         _x_total = _left_margin + _n + _gap + 1 + _gap + 1 + 1.8
         _y_total = _n + 2.6 + _top_margin
         _figH = min(9.0, max(3.4, _figW * _y_total / _x_total))
@@ -689,12 +799,42 @@ def s2_plot(A, ACCENT, EDGE_COLOR, NUMBER_THRESHOLD, clean_axis, draw_block, dra
         clean_axis(_axM)
         _axM.set_aspect("equal")
 
+        _pair_colors = [PALETTE[_m % len(PALETTE)] for _m in range(_n)]
+
+        def _term_color(_m):
+            _active = A[_f, _m] * _x[_m] != 0
+            return (
+                _pair_colors[_m] if _active
+                else lighten_color(_pair_colors[_m])
+            )
+
+        def _row_text_color(_r, _c, _v):
+            if _r == _f:
+                return _term_color(_c)
+            return "#aaaaaa" if _v == 0 else "#222222"
+
+        def _row_text_weight(_r, _c, _v):
+            return (
+                "bold" if _r == _f and A[_f, _c] * _x[_c] != 0
+                else "normal"
+            )
+
+        def _x_text_color(_r, _c, _v):
+            return _term_color(_r)
+
+        def _x_text_weight(_r, _c, _v):
+            return "bold" if A[_f, _r] * _v != 0 else "normal"
+
         _xe = draw_block(_axM, A, 0, _names, _fs, row_names=True,
-                         col_names=True, hl_row=_f)
-        _axM.text(_xe + _gap / 2, _n / 2, "@", fontsize=15,
+                         col_names=True, hl_row=_f,
+                         text_colors=_row_text_color,
+                         text_weights=_row_text_weight)
+        _axM.text(_xe + _gap / 2, _n / 2, r"$\times$", fontsize=16,
                   ha="center", va="center", color="#333333")
         _xv = _xe + _gap
-        draw_block(_axM, _x.reshape(-1, 1), _xv, _names, _fs, hl_col=0)
+        draw_block(_axM, _x.reshape(-1, 1), _xv, _names, _fs, hl_col=0,
+                   text_colors=_x_text_color,
+                   text_weights=_x_text_weight)
         _axM.text(_xv + 1 + _gap / 2, _n / 2, "=", fontsize=15,
                   ha="center", va="center", color="#333333")
         _xy = _xv + 1 + _gap
@@ -703,12 +843,13 @@ def s2_plot(A, ACCENT, EDGE_COLOR, NUMBER_THRESHOLD, clean_axis, draw_block, dra
 
         # The products, written under the column they come from.
         for _m in range(_n):
-            _zero = A[_f, _m] == 0
+            _zero = A[_f, _m] * _x[_m] == 0
             _axM.text(
                 _m + 0.5, _n + 0.85,
                 f"{A[_f, _m]:g}*{_x[_m]:g}",
                 ha="center", va="center", fontsize=_fs * 0.92,
-                color="#bbbbbb" if _zero else "#c0223b",
+                color=_term_color(_m),
+                fontweight="normal" if _zero else "bold",
             )
             if _m < _n - 1:
                 _axM.text(_m + 1.0, _n + 0.85, "+", ha="center",
@@ -719,24 +860,27 @@ def s2_plot(A, ACCENT, EDGE_COLOR, NUMBER_THRESHOLD, clean_axis, draw_block, dra
                   fontweight="bold", color="#c0223b")
         _axM.text(
             0, _n + 1.9,
-            f"y({focus_node.value})  =  row {focus_node.value} of A  "
-            f"times  x   (red row, blue vector)",
+            f"y({focus_node.value})  =  row {focus_node.value} of A "
+            "times x. Matching colours show which two numbers are paired.",
             ha="left", va="center", fontsize=_fs, color="#333333",
         )
         _axM.set_xlim(-_left_margin, _xy + 1.9)
         _axM.set_ylim(_n + 2.6, -_top_margin)
-        _body = mo.vstack([_fig1, _fig2])
+        _body = mo.hstack(
+            [_figG, _fig2], widths=[0.75, 1.7], gap=0.45,
+            align="center",
+        )
     else:
-        _body = mo.vstack([_fig1, mo.md(
+        _body = mo.hstack([_figG, mo.md(
             f"_Switch to a network with at most {NUMBER_THRESHOLD} nodes "
             "to see the multiplication spelled out — the math is "
             "identical._"
-        )])
+        )], widths=[0.85, 1.2], gap=0.6, align="center")
 
     if x_kind.value == "All ones (counts neighbours = degree)":
         _note = (
             "With $x$ = all ones every neighbour contributes exactly 1, "
-            "so `A @ x` = number of neighbours = **degree**. One "
+            "so $A x$ = number of neighbours = **degree**. One "
             "multiplication computed the degree of every node at once."
         )
     else:
@@ -753,7 +897,7 @@ def s2_plot(A, ACCENT, EDGE_COLOR, NUMBER_THRESHOLD, clean_axis, draw_block, dra
 
 
 # -----------------------------------------------------------------------------
-# Section 3 — Average of friends and the friendship paradox
+# Section 3 — Friends' average income
 # -----------------------------------------------------------------------------
 
 
@@ -761,16 +905,16 @@ def s2_plot(A, ACCENT, EDGE_COLOR, NUMBER_THRESHOLD, clean_axis, draw_block, dra
 def section3_header(mo):
     mo.md(r"""
     ---
-    ## 3. Average of friends, and the friendship paradox
+    ## 3. Friends' average income
 
     Divide the total by the number of neighbours (the degree) and you
-    get an **average over friends**: `(A @ x) / k`, elementwise.
+    get an **average over friends**: $(A x) / k$, elementwise.
 
-    Now feed the machine its own degrees: take $x = k$. Then each entry
-    is "the average degree of my friends". Comparing it with your own
-    degree gives a famous surprise — **on average, your friends have
-    more friends than you**. Popular people show up in many friend
-    lists, so they drag every list's average up.
+    Now let $x$ be annual income. To make the example concrete, income
+    rises with degree: people with more friends tend to have higher
+    incomes in this toy data. The multiplication gives each person the
+    **total income of their friends**; dividing by degree gives their
+    friends' average income.
     """)
     return
 
@@ -781,41 +925,78 @@ def s3_plot(A, ACCENT, draw_graph, g, layout_coords, mo, np, plt):
     _names = list(g.vs["name"])
     _deg = A.sum(axis=1)
     _safe = np.where(_deg > 0, _deg, 1.0)
-    _avg_nbr = (A @ _deg) / _safe
-    _avg_nbr[_deg == 0] = np.nan
 
-    _valid = ~np.isnan(_avg_nbr)
-    _mean_self = float(_deg[_valid].mean()) if _valid.any() else 0.0
-    _mean_nbr = float(np.nanmean(_avg_nbr)) if _valid.any() else 0.0
+    _income = None
+    if "income" in g.vs.attributes():
+        try:
+            _candidate = np.array(g.vs["income"], dtype=float)
+            if np.all(np.isfinite(_candidate)):
+                _income = _candidate
+        except (TypeError, ValueError):
+            _income = None
+    if _income is None:
+        _wiggle = np.array([0, 2500, -1500, 3500, -2500, 1500])
+        _income = 36000 + 10500 * _deg + np.resize(_wiggle, _n)
+        _income = np.clip(np.round(_income / 1000) * 1000, 32000, 145000)
+        _income_note = (
+            "For this network, income is synthetic: it increases with "
+            "degree, plus a small deterministic variation."
+        )
+    else:
+        _income_note = (
+            "This network has an income attribute; the toy data makes "
+            "income rise with degree."
+        )
 
-    # The network, with each node labelled by its degree.
+    _avg_nbr_income = (A @ _income) / _safe
+    _avg_nbr_income[_deg == 0] = np.nan
+
+    _valid = ~np.isnan(_avg_nbr_income)
+    _mean_self = float(_income[_valid].mean()) if _valid.any() else 0.0
+    _mean_nbr = (
+        float(np.nanmean(_avg_nbr_income)) if _valid.any() else 0.0
+    )
+
+    def _fmt_income(_v):
+        return f"\\${_v / 1000:.0f}k"
+
+    # The network, with each node labelled by income and degree.
     _figG, _axG = plt.subplots(figsize=(6.0, 5.2))
-    if _deg.max() > 0:
-        _sizes = list(20 + 22 * (_deg / _deg.max()))
+    if _income.max() > 0:
+        _sizes = list(22 + 26 * (_income / _income.max()))
     else:
         _sizes = None
     if _n <= 16:
-        _labels = [f"{_names[_i]}\nk={int(_deg[_i])}" for _i in range(_n)]
+        _labels = [
+            f"{_names[_i]}\n${_income[_i] / 1000:.0f}k\nk={int(_deg[_i])}"
+            for _i in range(_n)
+        ]
     else:
         _labels = [""] * _n
     draw_graph(_axG, g, layout_coords, vertex_color=ACCENT,
                vertex_size=_sizes, labels=_labels, label_size=11)
-    _axG.set_title("Node size = degree")
+    _axG.set_title("Node size = income; label also shows degree")
     plt.tight_layout()
 
     if _n <= 12:
         # Numbers-first: a table you can check by hand.
-        _rows = ["| Node | Own degree | Friends (their degrees) | Friends' average |",
-                 "|---|---|---|---|"]
+        _rows = [
+            "| Node | Own income | Friends (their incomes) | Friends' average income |",
+            "|---|---|---|---|",
+        ]
         for _i in range(_n):
             _nbrs = [_j for _j in range(_n) if A[_i, _j] > 0]
             _flist = ", ".join(
-                f"{_names[_j]} ({int(_deg[_j])})" for _j in _nbrs
+                f"{_names[_j]} ({_fmt_income(_income[_j])})" for _j in _nbrs
             ) if _nbrs else "—"
-            _avg = f"{_avg_nbr[_i]:.2f}" if _nbrs else "—"
-            _winner = " **<**" if _nbrs and _avg_nbr[_i] > _deg[_i] else ""
+            _avg = _fmt_income(_avg_nbr_income[_i]) if _nbrs else "—"
+            _winner = (
+                " **<**" if _nbrs and _avg_nbr_income[_i] > _income[_i]
+                else ""
+            )
             _rows.append(
-                f"| {_names[_i]} | {int(_deg[_i])}{_winner} | {_flist} | {_avg} |"
+                f"| {_names[_i]} | {_fmt_income(_income[_i])}{_winner} "
+                f"| {_flist} | {_avg} |"
             )
         _body = mo.hstack(
             [_figG, mo.md("\n".join(_rows))],
@@ -823,23 +1004,31 @@ def s3_plot(A, ACCENT, draw_graph, g, layout_coords, mo, np, plt):
         )
     else:
         # Bigger networks: the two distributions next to the graph.
-        _kmax = int(max(_deg.max(), np.nanmax(_avg_nbr)))
-        _bins = np.arange(0, _kmax + 2) - 0.5
+        _upper = int(
+            np.ceil(max(_income.max(), np.nanmax(_avg_nbr_income)) / 10000)
+            * 10000
+        )
+        _bins = np.linspace(30000, max(50000, _upper), 12)
         _figH, (_ax1, _ax2) = plt.subplots(1, 2, figsize=(7.5, 3.6))
-        _ax1.hist(_deg, bins=_bins, color="#888888", edgecolor="white")
+        _ax1.hist(_income, bins=_bins, color="#888888", edgecolor="white")
         _ax1.axvline(_mean_self, color="#c0223b", linestyle="--",
-                     linewidth=1.2, label=f"mean = {_mean_self:.2f}")
-        _ax1.set_title("Your degree  k")
-        _ax1.set_xlabel("k")
+                     linewidth=1.2,
+                     label=f"mean = ${_mean_self / 1000:.0f}k")
+        _ax1.set_title("Own income")
+        _ax1.set_xlabel("annual income")
         _ax1.legend(frameon=False, fontsize=9)
-        _ax2.hist(_avg_nbr[_valid], bins=_bins, color=ACCENT,
+        _ax2.hist(_avg_nbr_income[_valid], bins=_bins, color=ACCENT,
                   edgecolor="white")
         _ax2.axvline(_mean_nbr, color="#c0223b", linestyle="--",
-                     linewidth=1.2, label=f"mean = {_mean_nbr:.2f}")
-        _ax2.set_title("Friends' average degree")
-        _ax2.set_xlabel("avg. neighbour degree")
+                     linewidth=1.2,
+                     label=f"mean = ${_mean_nbr / 1000:.0f}k")
+        _ax2.set_title("Friends' average income")
+        _ax2.set_xlabel("avg. friends' income")
         _ax2.legend(frameon=False, fontsize=9)
         for _ax in (_ax1, _ax2):
+            _ax.xaxis.set_major_formatter(
+                plt.FuncFormatter(lambda _x, _pos: f"${_x / 1000:.0f}k")
+            )
             _ax.spines["top"].set_visible(False)
             _ax.spines["right"].set_visible(False)
         plt.tight_layout()
@@ -850,24 +1039,24 @@ def s3_plot(A, ACCENT, draw_graph, g, layout_coords, mo, np, plt):
     _diff = _mean_nbr - _mean_self
     if _diff > 1e-9:
         _verdict = (
-            "your friends have more friends than you — the paradox holds"
+            "friends' average income is higher than own income"
         )
     elif _diff < -1e-9:
-        _verdict = "friends average fewer — unusual, degree-equal networks can do this"
+        _verdict = "friends' average income is lower in this network"
     else:
-        _verdict = "exactly equal — every node has the same degree"
+        _verdict = "the two averages are exactly equal"
     _msg = mo.md(
-        f"Mean degree = **{_mean_self:.2f}**; mean of friends' averages = "
-        f"**{_mean_nbr:.2f}** — {_verdict}. No psychology involved: it is "
-        "pure structure, and it fell out of one multiplication and one "
-        "division."
+        f"Mean own income = **{_fmt_income(_mean_self)}**; mean of "
+        f"friends' average income = **{_fmt_income(_mean_nbr)}** — "
+        f"{_verdict}. {_income_note} The pattern falls out of one "
+        "multiplication and one division."
     )
     mo.vstack([_body, _msg])
     return
 
 
 # -----------------------------------------------------------------------------
-# Section 4 — A @ A: a row times a column
+# Section 4 — A^2: paths of length 2
 # -----------------------------------------------------------------------------
 
 
@@ -875,17 +1064,17 @@ def s3_plot(A, ACCENT, draw_graph, g, layout_coords, mo, np, plt):
 def section4_header(mo):
     mo.md(r"""
     ---
-    ## 4. `A @ A` — a row times a column
+    ## 4. $A^2$ — paths of length 2
 
     What happens when the thing you multiply $A$ by is $A$ itself? Cell
-    $(i, j)$ of `A @ A` is **row $i$ of the first matrix times column
+    $(i, j)$ of $A^2$ is **row $i$ of the first matrix times column
     $j$ of the second**: pair up the entries, multiply each pair, add
     everything up.
 
     Each pair asks: *does $i$ know $m$* (row), *and does $m$ know $j$*
     (column)? Only when both are 1 does the pair contribute — and that
     pair **is** a stepping stone: a walk $i \to m \to j$ of length 2.
-    Cell $(i, j)$ of `A @ A` therefore counts the walks of length 2 —
+    Cell $(i, j)$ of $A^2$ therefore counts the walks of length 2 —
     the friends that $i$ and $j$ have in common.
     """)
     return
@@ -906,13 +1095,80 @@ def s4_widgets(g, mo):
 
 
 @app.cell
-def s4_plot(A, NUMBER_THRESHOLD, aa_i, aa_j, clean_axis, draw_block, g, mo, np, plt):
+def s4_plot(
+    A, ACCENT, EDGE_COLOR, NUMBER_THRESHOLD, PALETTE, aa_i, aa_j,
+    clean_axis, draw_block, draw_graph, g, layout_coords, lighten_color,
+    mo, np, plt,
+):
+    import matplotlib.patches as _mpatches
+    from matplotlib.path import Path as _MplPath
+
     _n = g.vcount()
     _names = list(g.vs["name"])
     _i = _names.index(aa_i.value)
     _j = _names.index(aa_j.value)
     _A2 = A @ A
     _val = _A2[_i, _j]
+    _pair_colors = [PALETTE[_m % len(PALETTE)] for _m in range(_n)]
+
+    def _active(_m):
+        return A[_i, _m] * A[_m, _j] > 0
+
+    def _term_color(_m):
+        return (
+            _pair_colors[_m] if _active(_m)
+            else lighten_color(_pair_colors[_m])
+        )
+
+    _steps = [_m for _m in range(_n) if _active(_m)]
+
+    # Network view: draw every length-2 path i -> m -> j.
+    _figP, _axP = plt.subplots(figsize=(4.5, 4.8))
+    _vcols = ["#d9e8ee"] * _n
+    for _m in _steps:
+        _vcols[_m] = lighten_color(_pair_colors[_m], amount=0.35)
+    _vcols[_i] = ACCENT
+    _vcols[_j] = "#c0223b"
+    draw_graph(_axP, g, layout_coords, vertex_color=_vcols,
+               edge_color=EDGE_COLOR, edge_width=1.1, label_size=12)
+
+    _xs = [c[0] for c in layout_coords]
+    _ys = [c[1] for c in layout_coords]
+    _span = max(max(_xs) - min(_xs), max(_ys) - min(_ys), 1e-9)
+
+    def _draw_curve(_a, _b, _color, _bow):
+        _p = np.array(layout_coords[_a])
+        _q = np.array(layout_coords[_b])
+        _mid = (_p + _q) / 2
+        _d = _q - _p
+        _nrm = float(np.hypot(*_d)) or 1.0
+        _perp = np.array([-_d[1], _d[0]]) / _nrm
+        _ctrl = _mid + _perp * _bow
+        _path = _MplPath(
+            [tuple(_p), tuple(_ctrl), tuple(_q)],
+            [_MplPath.MOVETO, _MplPath.CURVE3, _MplPath.CURVE3],
+        )
+        _axP.add_patch(_mpatches.PathPatch(
+            _path, fill=False, edgecolor=_color, linewidth=3.0,
+            alpha=0.9, zorder=5,
+        ))
+
+    for _t, _m in enumerate(_steps):
+        _col = _pair_colors[_m]
+        _bow = ((_t % 5) - 2) * 0.065 * _span
+        _draw_curve(_i, _m, _col, _bow)
+        _draw_curve(_m, _j, _col, _bow)
+
+    _xi, _yi = layout_coords[_i]
+    _xj, _yj = layout_coords[_j]
+    _axP.scatter([_xi], [_yi], s=520, facecolors="none",
+                 edgecolors=ACCENT, linewidths=2.5, zorder=8)
+    _axP.scatter([_xj], [_yj], s=380, facecolors="none",
+                 edgecolors="#c0223b", linewidths=2.5, zorder=8)
+    _axP.set_title(
+        f"All length-2 paths from {aa_i.value} to {aa_j.value}: {int(_val)}"
+    )
+    plt.tight_layout()
 
     if _n <= NUMBER_THRESHOLD:
         _fs = 11 if _n <= 6 else (9 if _n <= 10 else 6.5)
@@ -921,7 +1177,7 @@ def s4_plot(A, NUMBER_THRESHOLD, aa_i, aa_j, clean_axis, draw_block, g, mo, np, 
         _top_margin = 0.6 + 0.21 * _maxlen * _fs / 9.0
         _gap = 1.7
 
-        _figW = 12.0
+        _figW = 9.0
         _x_total = _left_margin + 3 * _n + 2 * _gap + 0.8
         _y_total = _n + 2.6 + _top_margin
         _figH = min(9.5, max(3.2, _figW * _y_total / _x_total))
@@ -929,13 +1185,32 @@ def s4_plot(A, NUMBER_THRESHOLD, aa_i, aa_j, clean_axis, draw_block, g, mo, np, 
         clean_axis(_ax)
         _ax.set_aspect("equal")
 
+        def _left_text_color(_r, _c, _v):
+            if _r == _i:
+                return _term_color(_c) if _active(_c) else "#666666"
+            return "#aaaaaa" if _v == 0 else "#222222"
+
+        def _left_text_weight(_r, _c, _v):
+            return "bold" if _r == _i and _active(_c) else "normal"
+
+        def _right_text_color(_r, _c, _v):
+            if _c == _j:
+                return _term_color(_r) if _active(_r) else "#666666"
+            return "#aaaaaa" if _v == 0 else "#222222"
+
+        def _right_text_weight(_r, _c, _v):
+            return "bold" if _c == _j and _active(_r) else "normal"
+
         _xe = draw_block(_ax, A, 0, _names, _fs, row_names=True,
-                         col_names=True, hl_row=_i)
-        _ax.text(_xe + _gap / 2, _n / 2, "@", fontsize=15,
+                         col_names=True, hl_row=_i,
+                         text_colors=_left_text_color,
+                         text_weights=_left_text_weight)
+        _ax.text(_xe + _gap / 2, _n / 2, r"$\times$", fontsize=16,
                  ha="center", va="center", color="#333333")
         _x2 = _xe + _gap
         _xe2 = draw_block(_ax, A, _x2, _names, _fs, col_names=True,
-                          hl_col=_j)
+                          hl_col=_j, text_colors=_right_text_color,
+                          text_weights=_right_text_weight)
         _ax.text(_xe2 + _gap / 2, _n / 2, "=", fontsize=15,
                  ha="center", va="center", color="#333333")
         _x3 = _xe2 + _gap
@@ -950,30 +1225,34 @@ def s4_plot(A, NUMBER_THRESHOLD, aa_i, aa_j, clean_axis, draw_block, g, mo, np, 
                 _m + 0.5, _n + 0.85,
                 f"{A[_i, _m]:g}*{A[_m, _j]:g}",
                 ha="center", va="center", fontsize=_fs * 0.92,
-                color="#222222" if _prod > 0 else "#bbbbbb",
+                color=_term_color(_m) if _prod > 0 else "#666666",
+                fontweight="bold" if _prod > 0 else "normal",
             )
             if _m < _n - 1:
                 _ax.text(_m + 1.0, _n + 0.85, "+", ha="center",
                          va="center", fontsize=_fs * 0.92,
                          color="#bbbbbb")
-        _ax.text(_xe + 0.6, _n + 0.85, f"= {_val:g}",
-                 ha="left", va="center", fontsize=_fs,
+        _ax.text(_x3 + _j + 0.5, _n + 0.85, f"= {_val:g}",
+                 ha="center", va="center", fontsize=_fs,
                  fontweight="bold", color="#0e8c6d")
         _ax.text(
             0, _n + 1.9,
-            f"(A @ A)({aa_i.value}, {aa_j.value})  =  "
-            f"red row times blue column  =  {_val:g}",
+            f"A^2({aa_i.value}, {aa_j.value}) = row {aa_i.value} "
+            f"times column {aa_j.value}. Matching colours show each m.",
             ha="left", va="center", fontsize=_fs, color="#333333",
         )
         _ax.set_xlim(-_left_margin, _x3 + _n + 0.8)
         _ax.set_ylim(_n + 2.6, -_top_margin)
-        _body = _fig
+        _body = mo.hstack(
+            [_figP, _fig], widths=[0.75, 1.75], gap=0.45,
+            align="center",
+        )
     else:
-        _body = mo.md(
-            f"(A @ A)({aa_i.value}, {aa_j.value}) = **{_val:g}**. "
+        _body = mo.hstack([_figP, mo.md(
+            f"$A^2$({aa_i.value}, {aa_j.value}) = **{_val:g}**. "
             f"_Switch to a network with at most {NUMBER_THRESHOLD} nodes "
             "to see the two matrices spelled out._"
-        )
+        )], widths=[0.85, 1.2], gap=0.6, align="center")
 
     _common = [
         _names[_m] for _m in range(_n) if A[_i, _m] * A[_m, _j] > 0
@@ -985,11 +1264,15 @@ def s4_plot(A, NUMBER_THRESHOLD, aa_i, aa_j, clean_axis, draw_block, g, mo, np, 
             f"equals the **degree** ({_val:g})."
         )
     elif _common:
+        _paths = [
+            f"{aa_i.value} -> {_c} -> {aa_j.value}" for _c in _common
+        ]
         _interp = (
             f"The nonzero pairs are the stepping stones: "
             f"{', '.join('**' + _c + '**' for _c in _common)}. "
             f"{aa_i.value} and {aa_j.value} share {_val:g} "
-            f"common neighbour{'s' if _val != 1 else ''}."
+            f"common neighbour{'s' if _val != 1 else ''}. "
+            f"Length-2 paths: {'; '.join(_paths)}."
         )
     else:
         _interp = (
@@ -1009,10 +1292,10 @@ def s4_plot(A, NUMBER_THRESHOLD, aa_i, aa_j, clean_axis, draw_block, g, mo, np, 
 def section5_header(mo):
     mo.md(r"""
     ---
-    ## 5. Keep multiplying: `A @ A @ A` and beyond
+    ## 5. Keep multiplying: $A^3$ and beyond
 
     Multiplying once more repeats the trick: cell $(i, j)$ of $A^k$
-    (that is, `A @ A @ ... @ A`, $k$ times) counts the **walks of
+    (that is, multiplying $A$ by itself $k$ times) counts the **walks of
     length $k$** from $i$ to $j$ — walks may revisit nodes. One number
     in a matrix, and you can draw every walk it counts on the network.
 
@@ -1054,8 +1337,8 @@ def s5_compute(A, np, power_k):
 @app.cell
 def s5_walks_plot(
     A, ACCENT, Ak, Akm1, NUMBER_THRESHOLD, PALETTE, clean_axis, draw_graph,
-    enumerate_walks, g, layout_coords, matrix_with_numbers, mo, np,
-    plt, power_k, walk_i, walk_j,
+    enumerate_walks, g, layout_coords, matrix_with_numbers, mo, np, plt,
+    power_k, walk_i, walk_j,
 ):
     import matplotlib.patches as _mpatches
     from matplotlib.path import Path as _MplPath
@@ -1079,10 +1362,11 @@ def s5_walks_plot(
             return ACCENT
         return PALETTE[w[-2] % len(PALETTE)]
 
-    _fig, (_axG, _axE) = plt.subplots(1, 2, figsize=(12, 5.6))
+    _figG, _axG = plt.subplots(figsize=(5.2, 4.9))
 
-    # Left: the graph with walks drawn as bowed coloured curves.
-    draw_graph(_axG, g, layout_coords, vertex_color="#c8dde6")
+    # Graph with walks drawn as bowed coloured curves.
+    draw_graph(_axG, g, layout_coords, vertex_color="#c8dde6",
+               label_size=12)
     _xs = [c[0] for c in layout_coords]
     _ys = [c[1] for c in layout_coords]
     _span = max(max(_xs) - min(_xs), max(_ys) - min(_ys), 1e-9)
@@ -1116,73 +1400,12 @@ def s5_walks_plot(
         f"{_count} walk{'s' if _count != 1 else ''} of length {_k}: "
         f"{walk_i.value} (blue ring) to {walk_j.value} (red ring){_extra}"
     )
-
-    # Right: the multiplication, one line per stepping stone m.
-    clean_axis(_axE)
-    if _k == 1:
-        _v = int(round(A[_i, _j]))
-        _axE.text(
-            0.05, 0.6,
-            f"A({walk_i.value}, {walk_j.value}) = {_v}",
-            family="monospace", fontsize=13, fontweight="bold",
-            transform=_axE.transAxes,
-        )
-        _axE.text(
-            0.05, 0.45,
-            "Length 1 is just the matrix entry:\n"
-            + ("there IS a direct edge." if _v else "no direct edge."),
-            fontsize=11, va="top", transform=_axE.transAxes,
-        )
-    elif _n <= NUMBER_THRESHOLD:
-        _show_all = _n <= 8
-        _w = max(len(_nm) for _nm in _names)
-        _lhs = "A" if _k == 2 else f"A^{_k - 1}"
-        _lines = [(
-            f"(A^{_k})({walk_i.value},{walk_j.value}) = "
-            f"row of {_lhs} times column of A:",
-            "#333333", True,
-        )]
-        _skipped = 0
-        for _m in range(_n):
-            _a = Akm1[_i, _m]
-            _b = A[_m, _j]
-            _prod = _a * _b
-            if _prod == 0 and not _show_all:
-                _skipped += 1
-                continue
-            _col = PALETTE[_m % len(PALETTE)] if _prod > 0 else "#bbbbbb"
-            _lines.append((
-                f"  via {_names[_m]:<{_w}}  {int(_a)} * {int(_b)} = {int(_prod)}",
-                _col, _prod > 0,
-            ))
-        if _skipped:
-            _lines.append((f"  (+ {_skipped} terms that are 0)",
-                           "#bbbbbb", False))
-        _lines.append((
-            f"  total = {_count} walk{'s' if _count != 1 else ''}",
-            "#c0223b", True,
-        ))
-        _dy = 1.0 / (len(_lines) + 1)
-        for _t, (_txt, _col, _bold) in enumerate(_lines):
-            _axE.text(
-                0.02, 1.0 - (_t + 1) * _dy, _txt,
-                family="monospace", fontsize=10, color=_col,
-                fontweight="bold" if _bold else "normal",
-                transform=_axE.transAxes,
-            )
-        _axE.set_title("One line per stepping stone m")
-    else:
-        _axE.text(0.5, 0.5,
-                  f"(A^{_k})({walk_i.value}, {walk_j.value}) = {_count}\n\n"
-                  "Switch to a network with at most\n"
-                  f"{NUMBER_THRESHOLD} nodes to see the terms.",
-                  ha="center", va="center", fontsize=11)
     plt.tight_layout()
 
     # The full A^k matrix, with the chosen cell boxed.
-    _figM, _axM = plt.subplots(figsize=(6.8, 6.2))
+    _figM, _axM = plt.subplots(figsize=(5.3, 4.9))
     matrix_with_numbers(
-        _axM, Ak, _names, highlight_cell=(_i, _j), cmap="magma",
+        _axM, Ak, _names, highlight_cell=(_i, _j), cmap="YlGnBu",
         title=f"A^{_k} — every cell counts walks of length {_k}",
     )
     plt.tight_layout()
@@ -1196,7 +1419,11 @@ def s5_walks_plot(
         if _count > 0 else
         f"No walk of length {_k} connects {walk_i.value} to {walk_j.value}."
     )
-    mo.vstack([_fig, _figM, mo.md(_list_md)])
+    _body = mo.hstack(
+        [_figG, _figM], widths=[1.0, 1.0], gap=0.55,
+        align="center",
+    )
+    mo.vstack([_body, mo.md(_list_md)])
     return
 
 
@@ -1205,7 +1432,7 @@ def s5_reach_header(mo):
     mo.md(r"""
     ### Reachable in at most $k$ steps
 
-    Add the powers up: a cell of `A + A@A + A@A@A + ...` is positive
+    Add the powers up: a cell of $A + A^2 + A^3 + \cdots$ is positive
     exactly when SOME walk of length at most $k$ connects the pair.
     The node and the walk length $k$ above drive this picture too —
     this is how "six degrees of separation" and epidemic horizons are
@@ -1215,7 +1442,9 @@ def s5_reach_header(mo):
 
 
 @app.cell
-def s5_reach_plot(A, draw_graph, g, layout_coords, mo, np, plt, power_k, walk_i):
+def s5_reach_plot(
+    A, draw_graph, g, layout_coords, mo, np, plt, power_k, walk_i,
+):
     _n = g.vcount()
     _names = list(g.vs["name"])
     _s = _names.index(walk_i.value)
@@ -1232,10 +1461,10 @@ def s5_reach_plot(A, draw_graph, g, layout_coords, mo, np, plt, power_k, walk_i)
         _first[_newly] = _step
     _reached = _first > 0
 
-    # Sequential colours: later steps = lighter.
-    _cmap = plt.get_cmap("viridis")
+    # Sequential colours: higher/later steps are darker.
+    _cmap = plt.get_cmap("YlGnBu")
     _step_colors = [
-        _cmap(0.15 + 0.7 * (_step - 1) / max(1, _kmax - 1))
+        _cmap(0.28 + 0.62 * (_step - 1) / max(1, _kmax - 1))
         for _step in range(1, _kmax + 1)
     ]
     _START_COLOR = "#c0223b"
@@ -1279,7 +1508,7 @@ def s5_reach_plot(A, draw_graph, g, layout_coords, mo, np, plt, power_k, walk_i)
         "Newly reached per step: "
         + ", ".join(f"step {_t + 1}: {_c}" for _t, _c in enumerate(_per_step))
         + ". In matrix terms: count the positive entries in row "
-        f"**{walk_i.value}** of `A + A@A + ... ` up to $A^k$ "
+        f"**{walk_i.value}** of $A + A^2 + \\cdots$ up to $A^k$ "
         "(diagonal ignored)."
     )
     mo.vstack([_fig, _msg])
@@ -1289,7 +1518,7 @@ def s5_reach_plot(A, draw_graph, g, layout_coords, mo, np, plt, power_k, walk_i)
 @app.cell
 def s5_tri_header(mo):
     mo.md(r"""
-    ### Triangles: the diagonal of `A @ A @ A`
+    ### Triangles: the diagonal of $A^3$
 
     Set the target equal to the start: cell $(i, i)$ of $A^3$ counts
     round trips of length 3 — leave home, visit two friends, come back.
@@ -1305,7 +1534,10 @@ def s5_tri_header(mo):
 
 
 @app.cell
-def s5_tri_plot(A, ACCENT, EDGE_COLOR, NUMBER_THRESHOLD, draw_graph, g, is_directed, layout_coords, mo, np, plt):
+def s5_tri_plot(
+    A, ACCENT, EDGE_COLOR, NUMBER_THRESHOLD, draw_graph, g, is_directed,
+    layout_coords, matrix_with_numbers, mo, np, plt,
+):
     _n = g.vcount()
     _names = list(g.vs["name"])
     _A3 = A @ A @ A
@@ -1313,11 +1545,17 @@ def s5_tri_plot(A, ACCENT, EDGE_COLOR, NUMBER_THRESHOLD, draw_graph, g, is_direc
     if is_directed:
         _tri_node = _diag.astype(float)
         _total = float(np.trace(_A3) / 3.0)
-        _formula = "directed: per node $(A^3)_{ii}$, total $\\mathrm{tr}(A^3)/3$"
+        _formula = (
+            "directed: per node $(A^3)_{ii}$, "
+            "total $\\mathrm{tr}(A^3)/3$"
+        )
     else:
         _tri_node = _diag / 2.0
         _total = float(np.trace(_A3) / 6.0)
-        _formula = "undirected: per node $(A^3)_{ii}/2$, total $\\mathrm{tr}(A^3)/6$"
+        _formula = (
+            "undirected: per node $(A^3)_{ii}/2$, "
+            "total $\\mathrm{tr}(A^3)/6$"
+        )
 
     _fig, (_axL, _axR) = plt.subplots(
         1, 2, figsize=(12, 5.2), gridspec_kw={"width_ratios": [1.3, 1.0]},
@@ -1357,19 +1595,11 @@ def s5_tri_plot(A, ACCENT, EDGE_COLOR, NUMBER_THRESHOLD, draw_graph, g, is_direc
         + ("  (orange edge = part of a triangle)" if not is_directed else "")
     )
 
-    # Right: sorted bar chart.
-    _order = np.argsort(-_tri_node)
-    _axR.bar(range(_n), [_tri_node[_o] for _o in _order],
-             color=ACCENT, edgecolor="white")
-    if _n <= 30:
-        _axR.set_xticks(range(_n))
-        _axR.set_xticklabels([_names[_o] for _o in _order],
-                             rotation=90, fontsize=9)
-    else:
-        _axR.set_xticks([])
-    _axR.set_title(f"Triangles per node  ({_formula})")
-    _axR.spines["top"].set_visible(False)
-    _axR.spines["right"].set_visible(False)
+    # Right: the matrix whose diagonal carries the triangle counts.
+    matrix_with_numbers(
+        _axR, _A3, _names, highlight_diag=True, cmap="YlGnBu",
+        title="A^3 matrix — highlighted diagonal",
+    )
     plt.tight_layout()
 
     _top = int(np.argmax(_tri_node))
@@ -1378,7 +1608,7 @@ def s5_tri_plot(A, ACCENT, EDGE_COLOR, NUMBER_THRESHOLD, draw_graph, g, is_direc
         f"**{_names[_top]}** ({_tri_node[_top]:g}). Divide each node's "
         "count by the number of pairs of its neighbours and you get the "
         "**local clustering coefficient** — same diagonal, one division "
-        "away."
+        f"away. Rule used here: {_formula}."
     )
     mo.vstack([_fig, _msg])
     return
@@ -1396,12 +1626,12 @@ def section6_header(mo):
     ## 6. Multiply again and again — a ranking emerges
 
     One multiplication asked about neighbours; two asked about walks of
-    length 2. What if you never stop? Iterate `x = A @ x`, rescaling
-    each round so the numbers stay finite. Nodes with well-connected
-    neighbours pull ahead — having many walks of every length flowing
-    through you is what "being important" turns out to mean. After a
-    few rounds the bars stop moving: the network has settled on a
-    verdict.
+    length 2. What if you never stop? Iterate and rescale each round so
+    the numbers stay finite. In an undirected network this is
+    $x \leftarrow A x$. In a directed network we use the incoming-link
+    version, $x \leftarrow A^T x$: nodes pointed to by important nodes
+    pull ahead. After a few rounds the bars stop moving: the network has
+    settled on a verdict.
     """)
     return
 
@@ -1421,10 +1651,11 @@ def s6_plot(A, ACCENT, g, iter_k, mo, np, plt):
     _n = g.vcount()
     _names = list(g.vs["name"])
     _k = int(iter_k.value)
+    _M = A.T if g.is_directed() else A
 
     _x = np.ones(_n) / np.sqrt(_n)
     for _ in range(_k):
-        _xn = A @ _x
+        _xn = _M @ _x
         _nrm = np.linalg.norm(_xn)
         if _nrm > 0:
             _x = _xn / _nrm
@@ -1432,6 +1663,7 @@ def s6_plot(A, ACCENT, g, iter_k, mo, np, plt):
 
     try:
         _ref = np.array(g.eigenvector_centrality(directed=g.is_directed()))
+        _ref = np.nan_to_num(_ref, nan=0.0, posinf=0.0, neginf=0.0)
         _ref = np.abs(_ref) / max(1e-12, np.linalg.norm(_ref))
     except Exception:
         _ref = np.zeros(_n)
@@ -1458,15 +1690,29 @@ def s6_plot(A, ACCENT, g, iter_k, mo, np, plt):
     plt.tight_layout()
 
     _gap = float(np.linalg.norm(_x - _ref))
+    if g.is_directed():
+        _centrality_note = (
+            "For directed networks, eigenvector centrality **is defined**, "
+            "but direction matters. This app uses the incoming-link "
+            "version, $A^T x$, so a node scores highly when important "
+            "nodes point to it. The outgoing version, $A x$, answers a "
+            "different question. PageRank adds normalisation and random "
+            "jumping so the idea still behaves well when a directed graph "
+            "is not strongly connected."
+        )
+    else:
+        _centrality_note = (
+            "This limit is **eigenvector centrality**. Do the same "
+            "iteration on a row-normalised $A$ with a little random "
+            "jumping and you get **PageRank** — the multiplication that "
+            "ranked the web."
+        )
     _msg = mo.md(
         f"Distance to the converged ranking after {_k} "
         f"iteration{'s' if _k != 1 else ''}: **{_gap:.4f}** — slide right "
-        "and watch it go to zero.\n\n"
-        "This limit is **eigenvector centrality**. Do the same iteration "
-        "on a row-normalised $A$ with a little random jumping and you "
-        "get **PageRank** — the multiplication that ranked the web. The "
-        "last section maps where this same multiplication returns during "
-        "the rest of the week."
+        f"and watch it go to zero.\n\n{_centrality_note} The last section "
+        "maps where this same multiplication returns during the rest of "
+        "the week."
     )
     mo.vstack([_fig, _msg])
     return
@@ -1488,10 +1734,10 @@ def section7_connections(mo):
     - **Day 3a — community detection:** communities are where random
       walks stay trapped.
     - **Day 3b — link prediction:** the simplest score for a missing
-      edge $(i, j)$ is cell $(i, j)$ of `A @ A` — shared friends.
+      edge $(i, j)$ is cell $(i, j)$ of $A^2$ — shared friends.
     - **Day 3b — node embeddings:** nodes that share many walks end up
       with similar vectors.
-    - **Day 4 — graphical models:** message passing is `A @ x`,
+    - **Day 4 — graphical models:** message passing is $A x$,
       repeated.
     - **Day 5 — social contagion:** outbreaks spread along the
       reachability rings; the leading eigenvalue decides whether they
@@ -1507,8 +1753,8 @@ def section7_connections(mo):
 def footer(mo):
     mo.md(r"""
     ---
-    Javier Garcia-Bernardo — SoDa & Utrecht University ·
-    Network Science Summer School 2026 ·
+    Javier Garcia-Bernardo · ODISSEI SoDa & Methodology and Statistics,
+    Utrecht University · Network Science Summer School 2026 ·
     standalone marimo companion app for Day 1b.
     """)
     return
